@@ -29,6 +29,7 @@ export function useDeepgram(options: UseDeepgramOptions) {
   const mediaStreamRef = useRef<MediaStream | null>(null);
   const processorRef = useRef<ScriptProcessorNode | null>(null);
   const audioContextRef = useRef<AudioContext | null>(null);
+  const speechTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Use refs for callbacks to avoid stale closures in WebSocket handlers
   const optionsRef = useRef(options);
@@ -115,20 +116,26 @@ export function useDeepgram(options: UseDeepgramOptions) {
 
           const transcript = data.channel.alternatives[0]?.transcript ?? "";
 
-          // Deepgram can send speech_final with an empty transcript
-          // (just a "done speaking" signal). Handle it before the
-          // empty-transcript guard so onSpeechEnd always fires.
+          const flushTranscript = () => {
+            if (speechTimerRef.current) {
+              clearTimeout(speechTimerRef.current);
+              speechTimerRef.current = null;
+            }
+            const full = transcriptRef.current.trim();
+            if (full) {
+              console.log("[Deepgram] Speech complete:", full);
+              optionsRef.current.onSpeechEnd(full);
+            }
+            transcriptRef.current = "";
+          };
+
+          // Handle speech_final (may arrive with empty transcript)
           if (data.is_final && data.speech_final) {
             if (transcript) {
               transcriptRef.current += (transcriptRef.current ? " " : "") + transcript;
               optionsRef.current.onTranscript(transcriptRef.current, true);
             }
-            const full = transcriptRef.current.trim();
-            console.log("[Deepgram] Speech complete:", full);
-            if (full) {
-              optionsRef.current.onSpeechEnd(full);
-            }
-            transcriptRef.current = "";
+            flushTranscript();
             return;
           }
 
@@ -139,6 +146,16 @@ export function useDeepgram(options: UseDeepgramOptions) {
           if (data.is_final) {
             transcriptRef.current += (transcriptRef.current ? " " : "") + transcript;
             optionsRef.current.onTranscript(transcriptRef.current, true);
+
+            // Fallback: if speech_final never arrives, flush after 1.5s
+            // of no new is_final results. Covers unreliable endpointing.
+            if (speechTimerRef.current) {
+              clearTimeout(speechTimerRef.current);
+            }
+            speechTimerRef.current = setTimeout(() => {
+              console.log("[Deepgram] speech_final timeout — flushing");
+              flushTranscript();
+            }, 1500);
           } else {
             const interim = transcriptRef.current
               ? transcriptRef.current + " " + transcript
@@ -170,6 +187,10 @@ export function useDeepgram(options: UseDeepgramOptions) {
   }, [startAudioCapture]);
 
   const disconnect = useCallback(() => {
+    if (speechTimerRef.current) {
+      clearTimeout(speechTimerRef.current);
+      speechTimerRef.current = null;
+    }
     if (wsRef.current) {
       wsRef.current.close();
       wsRef.current = null;
