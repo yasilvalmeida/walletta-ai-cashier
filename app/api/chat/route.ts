@@ -123,6 +123,7 @@ export async function POST(request: Request) {
           number,
           { id: string; name: string; arguments: string }
         > = {};
+        let needsFollowUp = false;
 
         try {
           for await (const chunk of stream) {
@@ -167,6 +168,10 @@ export async function POST(request: Request) {
 
             // On finish, emit any completed tool calls as cart actions
             if (choice.finish_reason === "tool_calls" || choice.finish_reason === "stop") {
+              if (choice.finish_reason === "tool_calls") {
+                needsFollowUp = true;
+              }
+
               for (const tc of Object.values(toolCalls)) {
                 try {
                   const payload = JSON.parse(tc.arguments);
@@ -200,6 +205,45 @@ export async function POST(request: Request) {
                 } catch {
                   // Skip malformed tool call arguments
                 }
+              }
+            }
+          }
+
+          // When GPT-4o returns only tool_calls without text, send tool
+          // results back to get a spoken confirmation for the user.
+          if (needsFollowUp && Object.keys(toolCalls).length > 0) {
+            const assistantMsg: ChatCompletionMessageParam = {
+              role: "assistant",
+              tool_calls: Object.values(toolCalls).map((tc) => ({
+                id: tc.id,
+                type: "function" as const,
+                function: { name: tc.name, arguments: tc.arguments },
+              })),
+            };
+
+            const toolResults: ChatCompletionMessageParam[] =
+              Object.values(toolCalls).map((tc) => ({
+                role: "tool" as const,
+                tool_call_id: tc.id,
+                content: JSON.stringify({ success: true }),
+              }));
+
+            const followUp = await openai.chat.completions.create({
+              model: "gpt-4o",
+              messages: [...messages, assistantMsg, ...toolResults],
+              stream: true,
+            });
+
+            for await (const chunk of followUp) {
+              const delta = chunk.choices[0]?.delta;
+              if (delta?.content) {
+                const event = JSON.stringify({
+                  type: "text",
+                  delta: delta.content,
+                });
+                controller.enqueue(
+                  encoder.encode(`data: ${event}\n\n`)
+                );
               }
             }
           }
