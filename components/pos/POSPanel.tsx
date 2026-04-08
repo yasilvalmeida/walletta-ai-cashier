@@ -6,7 +6,20 @@ import { CartSummary } from "@/components/pos/CartSummary";
 import { Receipt } from "@/components/pos/Receipt";
 import { AnimatePresence } from "framer-motion";
 
-export function POSPanel() {
+type ConversationPhase =
+  | "idle"
+  | "listening"
+  | "processing"
+  | "responding"
+  | "error";
+
+interface POSPanelProps {
+  transcript?: string;
+  assistantText?: string;
+  phase?: ConversationPhase;
+}
+
+export function POSPanel({ transcript, assistantText, phase }: POSPanelProps) {
   const { items, receiptReady } = useCartStore();
 
   if (receiptReady) {
@@ -28,6 +41,24 @@ export function POSPanel() {
           AI-Powered Checkout
         </p>
       </div>
+
+      {/* Live transcript bar */}
+      {(transcript || (assistantText && phase === "responding")) && (
+        <div className="px-6 py-3 border-b border-border bg-background/50">
+          {transcript && (
+            <p className="font-sans text-xs text-text-secondary">
+              <span className="text-text-muted">You: </span>
+              {transcript}
+            </p>
+          )}
+          {assistantText && phase === "responding" && (
+            <p className="font-sans text-xs text-accent mt-1">
+              <span className="text-text-muted">Cashier: </span>
+              {assistantText}
+            </p>
+          )}
+        </div>
+      )}
 
       {/* Cart items */}
       <div className="flex-1 overflow-y-auto px-6 py-4">
