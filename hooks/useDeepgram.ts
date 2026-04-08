@@ -114,22 +114,31 @@ export function useDeepgram(options: UseDeepgramOptions) {
           if (!data.channel?.alternatives) return;
 
           const transcript = data.channel.alternatives[0]?.transcript ?? "";
+
+          // Deepgram can send speech_final with an empty transcript
+          // (just a "done speaking" signal). Handle it before the
+          // empty-transcript guard so onSpeechEnd always fires.
+          if (data.is_final && data.speech_final) {
+            if (transcript) {
+              transcriptRef.current += (transcriptRef.current ? " " : "") + transcript;
+              optionsRef.current.onTranscript(transcriptRef.current, true);
+            }
+            const full = transcriptRef.current.trim();
+            console.log("[Deepgram] Speech complete:", full);
+            if (full) {
+              optionsRef.current.onSpeechEnd(full);
+            }
+            transcriptRef.current = "";
+            return;
+          }
+
           if (!transcript) return;
 
-          console.log("[Deepgram]", data.is_final ? "FINAL:" : "interim:", transcript, data.speech_final ? "(speech_final)" : "");
+          console.log("[Deepgram]", data.is_final ? "FINAL:" : "interim:", transcript);
 
           if (data.is_final) {
             transcriptRef.current += (transcriptRef.current ? " " : "") + transcript;
             optionsRef.current.onTranscript(transcriptRef.current, true);
-
-            if (data.speech_final) {
-              const full = transcriptRef.current.trim();
-              console.log("[Deepgram] Speech complete:", full);
-              if (full) {
-                optionsRef.current.onSpeechEnd(full);
-              }
-              transcriptRef.current = "";
-            }
           } else {
             const interim = transcriptRef.current
               ? transcriptRef.current + " " + transcript
