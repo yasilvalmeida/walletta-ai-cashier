@@ -1,0 +1,677 @@
+[
+  {
+    "id": "smoothie-strawberry-glaze",
+    "name": "Strawberry Glaze",
+    "display_name": "Strawberry Glaze (Hailey Bieber)",
+    "category": "smoothies",
+    "price": 20.00,
+    "unit": "each",
+    "ingredients": ["almond milk", "strawberries", "avocado", "collagen", "sea moss", "coconut cream"],
+    "customizations": [
+      { "label": "Extra Sea Moss", "price": 3.00 },
+      { "label": "Vanilla Protein", "price": 2.50 },
+      { "label": "No Maple", "price": 0.00 }
+    ],
+    "search_keywords": ["strawberry", "hailey bieber", "collagen", "sea moss", "avocado"]
+  },
+  {
+    "id": "smoothie-malibu-mango",
+    "name": "Malibu Mango",
+    "display_name": "Malibu Mango (Winnie Harlow)",
+    "category": "smoothies",
+    "price": 21.00,
+    "unit": "each",
+    "ingredients": ["mango", "coconut milk", "pitaya", "collagen", "orange juice"],
+    "customizations": [
+      { "label": "Extra Pitaya", "price": 2.00 },
+      { "label": "Add Camu Camu", "price": 2.00 },
+      { "label": "Sub Coconut Water", "price": 1.50 }
+    ],
+    "search_keywords": ["mango", "winnie harlow", "pitaya", "tropical", "collagen"]
+  },
+  {
+    "id": "smoothie-coconut-cloud",
+    "name": "Coconut Cloud",
+    "display_name": "Coconut Cloud (Marianna Hewitt)",
+    "category": "smoothies",
+    "price": 19.00,
+    "unit": "each",
+    "ingredients": ["almond milk", "pineapple", "banana", "blue spirulina", "almond butter"],
+    "customizations": [
+      { "label": "Extra Blue Spirulina", "price": 2.50 },
+      { "label": "Add MCT Oil", "price": 2.00 },
+      { "label": "Swap to Oat Milk", "price": 0.00 }
+    ],
+    "search_keywords": ["coconut", "blue spirulina", "pineapple", "banana", "almond butter"]
+  },
+  {
+    "id": "smoothie-kourtney-kardashians-detox",
+    "name": "Kourtney Kardashian's Detox",
+    "display_name": "Kourtney Kardashian's Detox",
+    "category": "smoothies",
+    "price": 19.00,
+    "unit": "each",
+    "ingredients": ["organic coconut", "activated charcoal", "probiotics", "blueberries"],
+    "customizations": [
+      { "label": "Extra Probiotics", "price": 2.00 },
+      { "label": "Add Fresh Ginger", "price": 1.00 },
+      { "label": "Extra Charcoal", "price": 1.50 }
+    ],
+    "search_keywords": ["detox", "kourtney kardashian", "charcoal", "probiotics", "blueberry"]
+  },
+  {
+    "id": "smoothie-giseles-green-glow",
+    "name": "Gisele's Green Glow",
+    "display_name": "Gisele's Green Glow",
+    "category": "smoothies",
+    "price": 19.00,
+    "unit": "each",
+    "ingredients": ["coconut water", "spinach", "banana", "parsley", "lemon", "protein"],
+    "customizations": [
+      { "label": "Add Spirulina", "price": 2.00 },
+      { "label": "Plant Collagen", "price": 2.50 },
+      { "label": "Extra Lemon", "price": 0.50 }
+    ],
+    "search_keywords": ["green", "gisele", "spinach", "protein", "detox"]
+  },
+  {
+    "id": "smoothie-peanut-butter-blast",
+    "name": "Peanut Butter Blast",
+    "display_name": "Peanut Butter Blast",
+    "category": "smoothies",
+    "price": 16.00,
+    "unit": "each",
+    "ingredients": ["almond milk", "peanut butter", "protein", "cacao nibs"],
+    "customizations": [
+      { "label": "Double Protein", "price": 2.50 },
+      { "label": "Espresso Shot", "price": 2.25 },
+      { "label": "Swap to Hemp Milk", "price": 1.00 }
+    ],
+    "search_keywords": ["peanut butter", "protein", "cacao", "nutty", "chocolate"]
+  },
+  {
+    "id": "smoothie-turmeric-crush",
+    "name": "Turmeric Crush",
+    "display_name": "Turmeric Crush",
+    "category": "smoothies",
+    "price": 15.00,
+    "unit": "each",
+    "ingredients": ["carrot juice", "turmeric", "ginger", "pineapple", "camu camu"],
+    "customizations": [
+      { "label": "Black Pepper", "price": 0.00 },
+      { "label": "Extra Ginger", "price": 1.00 },
+      { "label": "Add Raw Honey", "price": 1.50 }
+    ],
+    "search_keywords": ["turmeric", "ginger", "carrot", "anti-inflammatory", "immunity"]
+  },
+  {
+    "id": "smoothie-hemp-heavy",
+    "name": "Hemp Heavy",
+    "display_name": "Hemp Heavy",
+    "category": "smoothies",
+    "price": 18.00,
+    "unit": "each",
+    "ingredients": ["hemp milk", "hemp seeds", "banana", "spinach", "chlorella"],
+    "customizations": [
+      { "label": "Add Maca", "price": 2.00 },
+      { "label": "Extra Chlorella", "price": 2.00 },
+      { "label": "Add Blue Spirulina", "price": 2.50 }
+    ],
+    "search_keywords": ["hemp", "chlorella", "green", "spinach", "superfood"]
+  },
+  {
+    "id": "smoothie-superberry-probiotic",
+    "name": "Superberry Probiotic",
+    "display_name": "Superberry Probiotic",
+    "category": "smoothies",
+    "price": 21.00,
+    "unit": "each",
+    "ingredients": ["mixed berries", "coconut kefir", "probiotics", "maca", "tocose"],
+    "customizations": [
+      { "label": "Extra Kefir", "price": 2.50 },
+      { "label": "Add Bee Pollen", "price": 2.00 },
+      { "label": "Extra Maca", "price": 2.00 }
+    ],
+    "search_keywords": ["berry", "probiotic", "kefir", "gut health", "maca"]
+  },
+  {
+    "id": "smoothie-chocolate-bliss",
+    "name": "Chocolate Bliss",
+    "display_name": "Chocolate Bliss",
+    "category": "smoothies",
+    "price": 17.00,
+    "unit": "each",
+    "ingredients": ["almond milk", "cacao", "dates", "bananas", "maca"],
+    "customizations": [
+      { "label": "Add Reishi", "price": 2.00 },
+      { "label": "Peanut Butter Drizzle", "price": 1.50 },
+      { "label": "Add Ashwagandha", "price": 2.00 }
+    ],
+    "search_keywords": ["chocolate", "cacao", "dates", "maca", "dessert"]
+  },
+  {
+    "id": "smoothie-blue-velvet",
+    "name": "Blue Velvet",
+    "display_name": "Blue Velvet",
+    "category": "smoothies",
+    "price": 18.00,
+    "unit": "each",
+    "ingredients": ["blue spirulina", "coconut", "protein", "vanilla", "almond butter"],
+    "customizations": [
+      { "label": "Extra Almond Butter", "price": 2.00 },
+      { "label": "Add Lion's Mane", "price": 2.00 },
+      { "label": "Add Collagen", "price": 2.50 }
+    ],
+    "search_keywords": ["blue", "spirulina", "protein", "vanilla", "almond butter"]
+  },
+  {
+    "id": "smoothie-mint-chip-energy",
+    "name": "Mint Chip Energy",
+    "display_name": "Mint Chip Energy",
+    "category": "smoothies",
+    "price": 17.00,
+    "unit": "each",
+    "ingredients": ["almond milk", "spinach", "mint", "cacao", "dates", "coconut"],
+    "customizations": [
+      { "label": "Extra Cacao Nibs", "price": 1.50 },
+      { "label": "Add Chlorophyll", "price": 2.00 },
+      { "label": "Add Peppermint Oil", "price": 0.00 }
+    ],
+    "search_keywords": ["mint", "chocolate", "energy", "cacao", "green"]
+  },
+  {
+    "id": "smoothie-the-rockstar",
+    "name": "The Rockstar",
+    "display_name": "The Rockstar",
+    "category": "smoothies",
+    "price": 22.00,
+    "unit": "each",
+    "ingredients": ["blueberries", "banana", "sea moss", "coconut oil", "chlorella"],
+    "customizations": [
+      { "label": "Extra Sea Moss", "price": 3.00 },
+      { "label": "Add Ashwagandha", "price": 2.00 },
+      { "label": "Add L-Theanine", "price": 2.00 }
+    ],
+    "search_keywords": ["rockstar", "sea moss", "blueberry", "chlorella", "energy"]
+  },
+  {
+    "id": "smoothie-avocado-greens",
+    "name": "Avocado Greens",
+    "display_name": "Avocado Greens",
+    "category": "smoothies",
+    "price": 16.00,
+    "unit": "each",
+    "ingredients": ["avocado", "spinach", "cucumber", "coconut water", "lime"],
+    "customizations": [
+      { "label": "Add Jalapeño", "price": 0.50 },
+      { "label": "Extra Lime", "price": 0.50 },
+      { "label": "Pink Sea Salt", "price": 0.00 }
+    ],
+    "search_keywords": ["avocado", "green", "cucumber", "lime", "savory"]
+  },
+  {
+    "id": "smoothie-orange-creamsicle",
+    "name": "Orange Creamsicle",
+    "display_name": "Orange Creamsicle",
+    "category": "smoothies",
+    "price": 16.00,
+    "unit": "each",
+    "ingredients": ["orange juice", "vanilla", "coconut milk", "collagen"],
+    "customizations": [
+      { "label": "Add Goji Berries", "price": 2.00 },
+      { "label": "Extra Vanilla", "price": 1.00 },
+      { "label": "Add Camu Camu", "price": 2.00 }
+    ],
+    "search_keywords": ["orange", "vanilla", "creamsicle", "collagen", "citrus"]
+  },
+  {
+    "id": "smoothie-matcha-power",
+    "name": "Matcha Power",
+    "display_name": "Matcha Power",
+    "category": "smoothies",
+    "price": 19.00,
+    "unit": "each",
+    "ingredients": ["ceremonial matcha", "spinach", "banana", "protein", "almond milk"],
+    "customizations": [
+      { "label": "Extra Matcha", "price": 3.00 },
+      { "label": "Add L-Theanine", "price": 2.00 },
+      { "label": "Sub Oat Milk", "price": 0.00 }
+    ],
+    "search_keywords": ["matcha", "green", "protein", "spinach", "energy"]
+  },
+  {
+    "id": "smoothie-paleo-smoothie",
+    "name": "Paleo Smoothie",
+    "display_name": "Paleo Smoothie",
+    "category": "smoothies",
+    "price": 18.00,
+    "unit": "each",
+    "ingredients": ["pumpkin seeds", "protein", "berries", "coconut water"],
+    "customizations": [
+      { "label": "No Berries", "price": 0.00 },
+      { "label": "Add Walnut Butter", "price": 2.50 },
+      { "label": "Add Hemp Seeds", "price": 1.50 }
+    ],
+    "search_keywords": ["paleo", "protein", "pumpkin", "berries", "clean"]
+  },
+  {
+    "id": "smoothie-ginger-berry-recovery",
+    "name": "Ginger Berry Recovery",
+    "display_name": "Ginger Berry Recovery",
+    "category": "smoothies",
+    "price": 16.00,
+    "unit": "each",
+    "ingredients": ["ginger", "blueberries", "raspberries", "apple juice", "electrolytes"],
+    "customizations": [
+      { "label": "Double Electrolytes", "price": 2.00 },
+      { "label": "Extra Fresh Ginger", "price": 1.00 },
+      { "label": "Add Glutamine", "price": 2.00 }
+    ],
+    "search_keywords": ["ginger", "berry", "recovery", "electrolytes", "post-workout"]
+  },
+  {
+    "id": "smoothie-golden-glow",
+    "name": "Golden Glow",
+    "display_name": "Golden Glow",
+    "category": "smoothies",
+    "price": 17.00,
+    "unit": "each",
+    "ingredients": ["mango", "turmeric", "carrot", "ginger", "coconut milk"],
+    "customizations": [
+      { "label": "Add Shilajit", "price": 4.00 },
+      { "label": "Extra Mango", "price": 1.50 },
+      { "label": "Add Black Pepper", "price": 0.00 }
+    ],
+    "search_keywords": ["golden", "turmeric", "mango", "ginger", "anti-inflammatory"]
+  },
+  {
+    "id": "smoothie-immunity-warrior",
+    "name": "Immunity Warrior",
+    "display_name": "Immunity Warrior",
+    "category": "smoothies",
+    "price": 18.00,
+    "unit": "each",
+    "ingredients": ["echinacea", "vitamin c", "berries", "orange", "manuka honey"],
+    "customizations": [
+      { "label": "Extra Manuka Honey", "price": 3.50 },
+      { "label": "Add Elderberry", "price": 2.50 },
+      { "label": "Add Zinc", "price": 1.50 }
+    ],
+    "search_keywords": ["immunity", "vitamin c", "echinacea", "manuka", "cold fighter"]
+  },
+  {
+    "id": "smoothie-tropical-greens",
+    "name": "Tropical Greens",
+    "display_name": "Tropical Greens",
+    "category": "smoothies",
+    "price": 16.00,
+    "unit": "each",
+    "ingredients": ["kale", "pineapple", "mango", "coconut milk", "lemon"],
+    "customizations": [
+      { "label": "Add Chia Seeds", "price": 1.50 },
+      { "label": "Add Moringa", "price": 2.00 },
+      { "label": "No Pineapple", "price": 0.00 }
+    ],
+    "search_keywords": ["tropical", "kale", "pineapple", "mango", "green smoothie"]
+  },
+  {
+    "id": "smoothie-cafe-latte-smoothie",
+    "name": "Cafe Latte Smoothie",
+    "display_name": "Cafe Latte Smoothie",
+    "category": "smoothies",
+    "price": 17.00,
+    "unit": "each",
+    "ingredients": ["cold brew coffee", "banana", "dates", "almond butter", "protein"],
+    "customizations": [
+      { "label": "Extra Cold Brew", "price": 2.00 },
+      { "label": "Add Cordyceps", "price": 2.00 },
+      { "label": "Add Cacao Nibs", "price": 1.50 }
+    ],
+    "search_keywords": ["coffee", "latte", "cold brew", "protein", "cafe"]
+  },
+  {
+    "id": "smoothie-dragon-fruit-fusion",
+    "name": "Dragon Fruit Fusion",
+    "display_name": "Dragon Fruit Fusion",
+    "category": "smoothies",
+    "price": 18.00,
+    "unit": "each",
+    "ingredients": ["pitaya", "banana", "goji berries", "coconut water"],
+    "customizations": [
+      { "label": "Add Aloe Vera", "price": 2.00 },
+      { "label": "Extra Goji", "price": 2.00 },
+      { "label": "Add Schisandra", "price": 2.00 }
+    ],
+    "search_keywords": ["dragon fruit", "pitaya", "goji", "tropical", "pink"]
+  },
+  {
+    "id": "coffee-chagaccino",
+    "name": "Chagaccino",
+    "display_name": "Chagaccino",
+    "category": "coffee_tonics",
+    "price": 10.00,
+    "unit": "each",
+    "ingredients": ["espresso", "chaga mushroom", "cacao", "cinnamon", "vanilla", "milk"],
+    "customizations": [
+      { "label": "Extra Espresso Shot", "price": 2.25 },
+      { "label": "Sub Raw Milk", "price": 2.00 },
+      { "label": "Add Collagen", "price": 2.50 }
+    ],
+    "search_keywords": ["chaga", "mushroom coffee", "espresso", "cacao", "latte"]
+  },
+  {
+    "id": "coffee-salted-maple-cowboy",
+    "name": "Salted Maple Cowboy",
+    "display_name": "Salted Maple Cowboy",
+    "category": "coffee_tonics",
+    "price": 11.00,
+    "unit": "each",
+    "ingredients": ["cold brew", "maple syrup", "himalayan salt", "milk"],
+    "customizations": [
+      { "label": "Add Espresso Shot", "price": 2.25 },
+      { "label": "Add Heavy Cream", "price": 1.50 },
+      { "label": "Add MCT Oil", "price": 2.00 }
+    ],
+    "search_keywords": ["maple", "cold brew", "salted", "cowboy", "sweet coffee"]
+  },
+  {
+    "id": "coffee-the-blackout-latte",
+    "name": "The Blackout Latte",
+    "display_name": "The Blackout Latte",
+    "category": "coffee_tonics",
+    "price": 9.50,
+    "unit": "each",
+    "ingredients": ["activated charcoal", "espresso", "vanilla", "oat milk"],
+    "customizations": [
+      { "label": "Sugar-free Vanilla", "price": 0.00 },
+      { "label": "Extra Charcoal", "price": 1.50 },
+      { "label": "Add Lion's Mane", "price": 2.00 }
+    ],
+    "search_keywords": ["blackout", "charcoal", "latte", "espresso", "detox"]
+  },
+  {
+    "id": "coffee-iced-spanish-latte",
+    "name": "Iced Spanish Latte",
+    "display_name": "Iced Spanish Latte",
+    "category": "coffee_tonics",
+    "price": 8.00,
+    "unit": "each",
+    "ingredients": ["espresso", "condensed milk", "cinnamon", "ice"],
+    "customizations": [
+      { "label": "Vegan Condensed Milk", "price": 1.00 },
+      { "label": "Double Cinnamon", "price": 0.00 },
+      { "label": "Add Vanilla", "price": 1.00 }
+    ],
+    "search_keywords": ["spanish latte", "iced", "espresso", "cinnamon", "sweet"]
+  },
+  {
+    "id": "coffee-golden-milk-latte",
+    "name": "Golden Milk Latte",
+    "display_name": "Golden Milk Latte",
+    "category": "coffee_tonics",
+    "price": 9.00,
+    "unit": "each",
+    "ingredients": ["turmeric", "black pepper", "ghee", "honey", "milk"],
+    "customizations": [
+      { "label": "Sub Coconut Oil", "price": 0.00 },
+      { "label": "Add Fresh Ginger", "price": 1.00 },
+      { "label": "Add Ashwagandha", "price": 2.00 }
+    ],
+    "search_keywords": ["golden milk", "turmeric", "latte", "anti-inflammatory", "ayurvedic"]
+  },
+  {
+    "id": "coffee-mushroom-mocha",
+    "name": "Mushroom Mocha",
+    "display_name": "Mushroom Mocha",
+    "category": "coffee_tonics",
+    "price": 11.00,
+    "unit": "each",
+    "ingredients": ["cacao", "adaptogenic mushroom blend", "espresso", "milk"],
+    "customizations": [
+      { "label": "Extra Mushroom Blend", "price": 2.50 },
+      { "label": "Add Peppermint Oil", "price": 0.00 },
+      { "label": "Sub Oat Milk", "price": 0.00 }
+    ],
+    "search_keywords": ["mushroom", "mocha", "adaptogenic", "espresso", "chocolate"]
+  },
+  {
+    "id": "coffee-ceremonial-matcha-latte",
+    "name": "Ceremonial Matcha Latte",
+    "display_name": "Ceremonial Matcha Latte",
+    "category": "coffee_tonics",
+    "price": 9.50,
+    "unit": "each",
+    "ingredients": ["premium japanese matcha", "hot water", "milk"],
+    "customizations": [
+      { "label": "Add Collagen", "price": 2.50 },
+      { "label": "Add L-Theanine", "price": 2.00 },
+      { "label": "Extra Matcha Shot", "price": 3.00 }
+    ],
+    "search_keywords": ["matcha", "latte", "japanese", "ceremonial", "green tea"]
+  },
+  {
+    "id": "coffee-blue-lavender-milk",
+    "name": "Blue Lavender Milk",
+    "display_name": "Blue Lavender Milk",
+    "category": "coffee_tonics",
+    "price": 8.50,
+    "unit": "each",
+    "ingredients": ["lavender flowers", "blue spirulina", "vanilla", "sweetener"],
+    "customizations": [
+      { "label": "Add Ashwagandha", "price": 2.00 },
+      { "label": "Extra Lavender", "price": 0.50 },
+      { "label": "Add Pearl Powder", "price": 2.50 }
+    ],
+    "search_keywords": ["lavender", "blue", "floral", "calming", "milk"]
+  },
+  {
+    "id": "coffee-adaptogenic-hot-cocoa",
+    "name": "Adaptogenic Hot Cocoa",
+    "display_name": "Adaptogenic Hot Cocoa",
+    "category": "coffee_tonics",
+    "price": 9.00,
+    "unit": "each",
+    "ingredients": ["cacao", "reishi", "ashwagandha", "coconut sugar"],
+    "customizations": [
+      { "label": "Add Cayenne", "price": 0.00 },
+      { "label": "Coconut Whipped Cream", "price": 1.50 },
+      { "label": "Add Cordyceps", "price": 2.00 }
+    ],
+    "search_keywords": ["hot cocoa", "chocolate", "reishi", "ashwagandha", "adaptogenic"]
+  },
+  {
+    "id": "coffee-rose-pistachio-latte",
+    "name": "Rose Pistachio Latte",
+    "display_name": "Rose Pistachio Latte",
+    "category": "coffee_tonics",
+    "price": 10.50,
+    "unit": "each",
+    "ingredients": ["rose water", "pistachio milk", "espresso"],
+    "customizations": [
+      { "label": "Extra Rose Water", "price": 0.50 },
+      { "label": "Add Vanilla Bean", "price": 1.50 },
+      { "label": "Sub Almond Milk", "price": 0.00 }
+    ],
+    "search_keywords": ["rose", "pistachio", "latte", "floral", "espresso"]
+  },
+  {
+    "id": "coffee-dirty-chai-latte",
+    "name": "Dirty Chai Latte",
+    "display_name": "Dirty Chai Latte",
+    "category": "coffee_tonics",
+    "price": 8.50,
+    "unit": "each",
+    "ingredients": ["chai spices", "espresso", "milk"],
+    "customizations": [
+      { "label": "Double Espresso", "price": 2.25 },
+      { "label": "Add Pumpkin Spice", "price": 1.00 },
+      { "label": "Add Reishi", "price": 2.00 }
+    ],
+    "search_keywords": ["chai", "dirty chai", "latte", "spiced", "espresso"]
+  },
+  {
+    "id": "coffee-keto-coffee",
+    "name": "Keto Coffee",
+    "display_name": "Keto Coffee",
+    "category": "coffee_tonics",
+    "price": 9.00,
+    "unit": "each",
+    "ingredients": ["coffee", "mct oil", "grass-fed butter"],
+    "customizations": [
+      { "label": "Add Collagen", "price": 2.50 },
+      { "label": "Stevia Drops", "price": 0.00 },
+      { "label": "Add Cacao", "price": 1.00 }
+    ],
+    "search_keywords": ["keto", "bulletproof", "mct", "butter coffee", "low carb"]
+  },
+  {
+    "id": "coffee-bone-broth-tonic",
+    "name": "Bone Broth Tonic",
+    "display_name": "Bone Broth Tonic",
+    "category": "coffee_tonics",
+    "price": 12.00,
+    "unit": "each",
+    "ingredients": ["bone broth", "ginger", "turmeric", "lemon"],
+    "customizations": [
+      { "label": "Add Sea Salt", "price": 0.00 },
+      { "label": "Extra Turmeric", "price": 0.75 },
+      { "label": "Add Cayenne", "price": 0.00 }
+    ],
+    "search_keywords": ["bone broth", "tonic", "savory", "gut health", "collagen"]
+  },
+  {
+    "id": "coffee-dandelion-detox-coffee",
+    "name": "Dandelion Detox Coffee",
+    "display_name": "Dandelion Detox Coffee",
+    "category": "coffee_tonics",
+    "price": 8.00,
+    "unit": "each",
+    "ingredients": ["dandelion root", "chicory", "milk"],
+    "customizations": [
+      { "label": "Add Raw Honey", "price": 1.50 },
+      { "label": "Add Milk Thistle", "price": 2.00 },
+      { "label": "Iced version", "price": 0.00 }
+    ],
+    "search_keywords": ["dandelion", "detox", "caffeine-free", "chicory", "herbal"]
+  },
+  {
+    "id": "coffee-sea-moss-tonic",
+    "name": "Sea Moss Tonic",
+    "display_name": "Sea Moss Tonic",
+    "category": "coffee_tonics",
+    "price": 13.00,
+    "unit": "each",
+    "ingredients": ["sea moss", "lemon", "agave", "electrolytes"],
+    "customizations": [
+      { "label": "Extra Sea Moss", "price": 3.00 },
+      { "label": "Add Chlorophyll", "price": 2.00 },
+      { "label": "Add Aloe", "price": 2.00 }
+    ],
+    "search_keywords": ["sea moss", "tonic", "electrolytes", "mineral", "hydration"]
+  },
+  {
+    "id": "coffee-bee-pollen-latte",
+    "name": "Bee Pollen Latte",
+    "display_name": "Bee Pollen Latte",
+    "category": "coffee_tonics",
+    "price": 10.00,
+    "unit": "each",
+    "ingredients": ["bee pollen", "manuka honey", "espresso", "oat milk"],
+    "customizations": [
+      { "label": "Extra Bee Pollen", "price": 2.00 },
+      { "label": "No Honey", "price": 0.00 },
+      { "label": "Add Royal Jelly", "price": 3.00 }
+    ],
+    "search_keywords": ["bee pollen", "manuka", "honey", "latte", "espresso"]
+  },
+  {
+    "id": "coffee-iced-vanilla-bean",
+    "name": "Iced Vanilla Bean",
+    "display_name": "Iced Vanilla Bean",
+    "category": "coffee_tonics",
+    "price": 7.50,
+    "unit": "each",
+    "ingredients": ["espresso", "natural vanilla", "ice", "milk"],
+    "customizations": [
+      { "label": "Add Caramel Drizzle", "price": 1.00 },
+      { "label": "Cold Foam", "price": 1.50 },
+      { "label": "Add MCT Oil", "price": 2.00 }
+    ],
+    "search_keywords": ["vanilla", "iced", "espresso", "classic", "bean"]
+  },
+  {
+    "id": "coffee-bulletproof-espresso",
+    "name": "Bulletproof Espresso",
+    "display_name": "Bulletproof Espresso",
+    "category": "coffee_tonics",
+    "price": 6.50,
+    "unit": "each",
+    "ingredients": ["double espresso", "mct oil"],
+    "customizations": [
+      { "label": "Add Cinnamon", "price": 0.00 },
+      { "label": "Stevia drops", "price": 0.00 },
+      { "label": "Add Butter", "price": 1.00 }
+    ],
+    "search_keywords": ["bulletproof", "espresso", "mct", "keto", "energy"]
+  },
+  {
+    "id": "coffee-collagen-peppermint-tea",
+    "name": "Collagen Peppermint Tea",
+    "display_name": "Collagen Peppermint Tea",
+    "category": "coffee_tonics",
+    "price": 8.00,
+    "unit": "each",
+    "ingredients": ["peppermint tea", "collagen", "stevia"],
+    "customizations": [
+      { "label": "Extra Collagen", "price": 2.50 },
+      { "label": "Add Raw Honey", "price": 1.50 },
+      { "label": "Add Ginger", "price": 1.00 }
+    ],
+    "search_keywords": ["peppermint", "tea", "collagen", "herbal", "digestive"]
+  },
+  {
+    "id": "coffee-shilajit-energy-tonic",
+    "name": "Shilajit Energy Tonic",
+    "display_name": "Shilajit Energy Tonic",
+    "category": "coffee_tonics",
+    "price": 14.00,
+    "unit": "each",
+    "ingredients": ["shilajit", "warm water", "lemon", "honey"],
+    "customizations": [
+      { "label": "Extra Shilajit", "price": 4.00 },
+      { "label": "Add Magnesium", "price": 2.00 },
+      { "label": "Add Pine Pollen", "price": 2.50 }
+    ],
+    "search_keywords": ["shilajit", "energy", "tonic", "mineral", "adaptogenic"]
+  },
+  {
+    "id": "coffee-adrenal-support-tea",
+    "name": "Adrenal Support Tea",
+    "display_name": "Adrenal Support Tea",
+    "category": "coffee_tonics",
+    "price": 9.00,
+    "unit": "each",
+    "ingredients": ["herbal blend", "magnesium", "ashwagandha"],
+    "customizations": [
+      { "label": "Add Lemon", "price": 0.00 },
+      { "label": "Extra Magnesium", "price": 2.00 },
+      { "label": "Add Holy Basil", "price": 2.00 }
+    ],
+    "search_keywords": ["adrenal", "stress relief", "ashwagandha", "herbal tea", "calming"]
+  },
+  {
+    "id": "coffee-americano",
+    "name": "Americano",
+    "display_name": "Americano",
+    "category": "coffee_tonics",
+    "price": 5.00,
+    "unit": "each",
+    "ingredients": ["espresso", "hot water"],
+    "customizations": [
+      { "label": "Splash of Almond Milk", "price": 0.75 },
+      { "label": "Extra Shot", "price": 2.25 },
+      { "label": "Iced version", "price": 0.00 }
+    ],
+    "search_keywords": ["americano", "espresso", "black coffee", "simple", "classic"]
+  }
+]
