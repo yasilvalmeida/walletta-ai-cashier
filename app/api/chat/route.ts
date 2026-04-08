@@ -66,6 +66,10 @@ function buildSystemPrompt(
     .map((p) => `- ${p.display_name} (${p.id}): $${p.price.toFixed(2)}`)
     .join("\n");
 
+  const subtotal = cartContext.reduce((sum, i) => sum + i.line_total, 0);
+  const tax = subtotal * 0.095;
+  const total = subtotal + tax;
+
   const cartSummary =
     cartContext.length > 0
       ? cartContext
@@ -73,7 +77,8 @@ function buildSystemPrompt(
             (i) =>
               `- ${i.product_name} x${i.quantity} @ $${i.unit_price.toFixed(2)} = $${i.line_total.toFixed(2)}`
           )
-          .join("\n")
+          .join("\n") +
+        `\n\nSubtotal: $${subtotal.toFixed(2)}\nTax (9.5%): $${tax.toFixed(2)}\nTotal: $${total.toFixed(2)}`
       : "Cart is empty.";
 
   return `You are an Erewhon cashier AI. You are warm, premium, and efficient. You help customers add items to their cart by name. When a customer mentions a product, call add_to_cart immediately. Always confirm what you added. Keep responses under 2 sentences.
@@ -81,14 +86,15 @@ function buildSystemPrompt(
 ## Available Products
 ${catalogSummary}
 
-## Current Cart
+## Current Cart (SOURCE OF TRUTH — always use these quantities and totals)
 ${cartSummary}
 
 Rules:
 - Match products by name fuzzy search. Use the exact product_id and price from the catalog.
 - Default quantity is 1 unless the customer specifies otherwise.
 - If a product is not found, politely suggest similar items.
-- For removals, use the product_id from the current cart.`;
+- For removals, use the product_id from the current cart.
+- When asked about totals, cart summary, or "how much", ONLY use the quantities and totals from the Current Cart section above. Never count from conversation history.`;
 }
 
 export async function POST(request: Request) {
