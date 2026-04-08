@@ -1,27 +1,11 @@
 "use client";
 
-type OverlayStatus =
-  | "idle"
-  | "connecting"
-  | "connected"
-  | "listening"
-  | "processing"
-  | "speaking"
-  | "error";
+import { STATUS_CONFIG } from "@/lib/overlay";
+import type { OverlayStatus } from "@/lib/overlay";
 
 interface AvatarOverlayProps {
   status: OverlayStatus;
 }
-
-const STATUS_CONFIG: Record<OverlayStatus, { label: string; color: string }> = {
-  idle: { label: "Standby", color: "bg-text-muted" },
-  connecting: { label: "Connecting...", color: "bg-accent-light" },
-  connected: { label: "Connected", color: "bg-success" },
-  listening: { label: "Listening...", color: "bg-accent" },
-  processing: { label: "Thinking...", color: "bg-accent-light" },
-  speaking: { label: "Speaking", color: "bg-accent" },
-  error: { label: "Error", color: "bg-destructive" },
-};
 
 export function AvatarOverlay({ status }: AvatarOverlayProps) {
   const { label, color } = STATUS_CONFIG[status];

@@ -101,4 +101,82 @@ test.describe("API Routes", () => {
     const data = await response.json();
     expect(data.key).toBeTruthy();
   });
+
+  test("POST /api/tts — returns WAV audio for valid text", async ({
+    request,
+  }) => {
+    const response = await request.post("/api/tts", {
+      data: { text: "Hello, welcome to Erewhon." },
+    });
+
+    expect(response.status()).toBe(200);
+    expect(response.headers()["content-type"]).toContain("audio/wav");
+
+    const body = await response.body();
+    expect(body.length).toBeGreaterThan(44); // WAV header is 44 bytes minimum
+
+    // Verify WAV header magic bytes: "RIFF" at offset 0, "WAVE" at offset 8
+    const riff = String.fromCharCode(body[0], body[1], body[2], body[3]);
+    const wave = String.fromCharCode(body[8], body[9], body[10], body[11]);
+    expect(riff).toBe("RIFF");
+    expect(wave).toBe("WAVE");
+  });
+
+  test("POST /api/tts — rejects empty text", async ({ request }) => {
+    const response = await request.post("/api/tts", {
+      data: { text: "" },
+    });
+
+    expect(response.status()).toBe(400);
+  });
+
+  test("POST /api/tts — rejects missing text field", async ({ request }) => {
+    const response = await request.post("/api/tts", {
+      data: {},
+    });
+
+    expect(response.status()).toBe(400);
+  });
+
+  test("Full pipeline: /api/chat text → /api/tts produces audio", async ({
+    request,
+  }) => {
+    // Step 1: Get LLM response text
+    const chatResponse = await request.post("/api/chat", {
+      data: {
+        messages: [{ role: "user", content: "Hello" }],
+        cartContext: [],
+      },
+    });
+
+    expect(chatResponse.status()).toBe(200);
+    const sseBody = await chatResponse.text();
+
+    // Extract text deltas from SSE stream
+    let llmText = "";
+    for (const line of sseBody.split("\n")) {
+      if (!line.startsWith("data: ")) continue;
+      try {
+        const event = JSON.parse(line.slice(6));
+        if (event.type === "text") {
+          llmText += event.delta;
+        }
+      } catch {
+        // skip non-JSON
+      }
+    }
+
+    expect(llmText.length).toBeGreaterThan(0);
+
+    // Step 2: Send LLM text to TTS
+    const ttsResponse = await request.post("/api/tts", {
+      data: { text: llmText },
+    });
+
+    expect(ttsResponse.status()).toBe(200);
+    expect(ttsResponse.headers()["content-type"]).toContain("audio/wav");
+
+    const audioBytes = await ttsResponse.body();
+    expect(audioBytes.length).toBeGreaterThan(1000); // Real audio is much larger than just a header
+  });
 });

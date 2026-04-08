@@ -2,13 +2,8 @@
 
 import { AvatarOverlay } from "@/components/avatar/AvatarOverlay";
 import { MicButton } from "@/components/ui/MicButton";
-
-type ConversationPhase =
-  | "idle"
-  | "listening"
-  | "processing"
-  | "responding"
-  | "error";
+import { getOverlayStatus } from "@/lib/overlay";
+import type { ConversationPhase } from "@/lib/overlay";
 
 interface AvatarPanelProps {
   phase: ConversationPhase;
@@ -21,19 +16,6 @@ interface AvatarPanelProps {
   onStart: () => void;
   onStop: () => void;
   isListening: boolean;
-}
-
-function getOverlayStatus(
-  phase: ConversationPhase,
-  deepgramStatus: string
-): "idle" | "connecting" | "connected" | "listening" | "processing" | "speaking" | "error" {
-  if (phase === "error") return "error";
-  if (deepgramStatus === "connecting") return "connecting";
-  if (phase === "responding") return "speaking";
-  if (phase === "processing") return "processing";
-  if (phase === "listening") return "listening";
-  if (deepgramStatus === "connected") return "connected";
-  return "idle";
 }
 
 export function AvatarPanel({

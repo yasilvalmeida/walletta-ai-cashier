@@ -4,6 +4,7 @@ import { useCallback, useRef, useState, useMemo } from "react";
 import { useCartStore } from "@/store/cartStore";
 import { useDeepgram } from "@/hooks/useDeepgram";
 import { useVAD } from "@/hooks/useVAD";
+import { useCartesiaTTS } from "@/hooks/useCartesiaTTS";
 import { parseSSEStream } from "@/lib/sse";
 import type { OrderItem, SSEEvent } from "@/lib/schemas";
 
@@ -34,9 +35,14 @@ export function useConversation() {
   const mediaStreamRef = useRef<MediaStream | null>(null);
   const abortRef = useRef<AbortController | null>(null);
 
+  const tts = useCartesiaTTS();
+  const ttsRef = useRef(tts);
+  ttsRef.current = tts;
+
   const sendToChat = useCallback(
     async (userMessage: string) => {
       console.log("[Chat] Sending:", userMessage);
+      ttsRef.current.stop();
       setPhase("processing");
       setAssistantText("");
 
@@ -99,7 +105,18 @@ export function useConversation() {
                 content: fullResponse,
               });
             }
-            setPhase("listening");
+            if (fullResponse.trim()) {
+              ttsRef.current
+                .speak(fullResponse.trim())
+                .catch((err: unknown) => {
+                  const msg =
+                    err instanceof Error ? err.message : "TTS failed";
+                  console.error("[TTS] Playback error:", msg);
+                })
+                .finally(() => setPhase("listening"));
+            } else {
+              setPhase("listening");
+            }
           },
           onError: (err) => {
             console.error("[Chat] Stream error:", err);
@@ -125,6 +142,7 @@ export function useConversation() {
   const vadOptions = useMemo(
     () => ({
       onSpeechStart: () => {
+        ttsRef.current.stop();
         setPhase("listening");
       },
       onSpeechEnd: () => {
@@ -193,6 +211,7 @@ export function useConversation() {
   const stop = useCallback(() => {
     console.log("[Conversation] Stopping");
     abortRef.current?.abort();
+    ttsRef.current.stop();
     vad.stopListening();
     deepgram.disconnect();
 
@@ -215,6 +234,7 @@ export function useConversation() {
     isSpeaking: vad.isSpeaking,
     volume: vad.volume,
     deepgramStatus: deepgram.status,
+    ttsStatus: tts.status,
     start,
     stop,
   };
