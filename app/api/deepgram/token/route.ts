@@ -11,16 +11,12 @@ export async function POST() {
       );
     }
 
-    // In production, create a short-lived ephemeral key via Deepgram API
-    // For now, return the API key status
-    return NextResponse.json({
-      key: "",
-      message: "Deepgram ephemeral key endpoint ready — needs API key",
-    });
-  } catch {
-    return NextResponse.json(
-      { error: "Failed to generate Deepgram token" },
-      { status: 500 }
-    );
+    // For the PoC, return the API key directly for client-side WebSocket.
+    // In production, use Deepgram's /v1/manage/keys endpoint to create
+    // a short-lived scoped key with limited permissions.
+    return NextResponse.json({ key: apiKey });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : "Failed to generate Deepgram token";
+    return NextResponse.json({ error: message }, { status: 500 });
   }
 }

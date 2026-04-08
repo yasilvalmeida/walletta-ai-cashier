@@ -1,11 +1,14 @@
 import { NextResponse } from "next/server";
+import { AccessToken } from "livekit-server-sdk";
+
+interface TokenRequest {
+  roomName: string;
+  participantName: string;
+}
 
 export async function POST(request: Request) {
   try {
-    const { roomName, participantName } = (await request.json()) as {
-      roomName: string;
-      participantName: string;
-    };
+    const { roomName, participantName } = (await request.json()) as TokenRequest;
 
     if (!roomName || !participantName) {
       return NextResponse.json(
@@ -25,17 +28,23 @@ export async function POST(request: Request) {
       );
     }
 
-    // Token generation requires livekit-server-sdk (server-side only)
-    // Placeholder: return config acknowledgment until SDK is added
-    return NextResponse.json({
-      token: "",
-      url: livekitUrl,
-      message: "LiveKit server SDK required for token generation",
+    const at = new AccessToken(apiKey, apiSecret, {
+      identity: participantName,
+      ttl: "10m",
     });
-  } catch {
-    return NextResponse.json(
-      { error: "Failed to generate LiveKit token" },
-      { status: 500 }
-    );
+
+    at.addGrant({
+      roomJoin: true,
+      room: roomName,
+      canPublish: true,
+      canSubscribe: true,
+    });
+
+    const token = await at.toJwt();
+
+    return NextResponse.json({ token, url: livekitUrl });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : "Failed to generate LiveKit token";
+    return NextResponse.json({ error: message }, { status: 500 });
   }
 }
