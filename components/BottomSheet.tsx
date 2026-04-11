@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { useCartStore, selectSubtotal, selectTax, selectTotal } from "@/store/cartStore";
 import { CartItem } from "@/components/pos/CartItem";
@@ -13,17 +13,17 @@ export function BottomSheet() {
   const subtotal = useCartStore(selectSubtotal);
   const tax = useCartStore(selectTax);
   const total = useCartStore(selectTotal);
-  const prevCountRef = useState(0);
+  const prevCountRef = useRef(0);
 
   // Auto-expand briefly when items change
   useEffect(() => {
-    if (items.length > 0 && items.length !== prevCountRef[0]) {
+    if (items.length > 0 && items.length !== prevCountRef.current) {
       setExpanded(true);
-      prevCountRef[0] = items.length;
+      prevCountRef.current = items.length;
       const timer = setTimeout(() => setExpanded(false), 3000);
       return () => clearTimeout(timer);
     }
-  }, [items.length, prevCountRef]);
+  }, [items.length]);
 
   if (items.length === 0 && !receiptReady) return null;
 
