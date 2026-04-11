@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useRef, useState, useMemo } from "react";
+import { useCallback, useRef, useState, useMemo, useEffect } from "react";
 import { useCartStore } from "@/store/cartStore";
 import { useDeepgram } from "@/hooks/useDeepgram";
 import { useVAD } from "@/hooks/useVAD";
@@ -25,6 +25,7 @@ export function useConversation() {
   const [transcript, setTranscript] = useState("");
   const [assistantText, setAssistantText] = useState("");
   const [error, setError] = useState<string | null>(null);
+  const [streamDoneSignal, setStreamDoneSignal] = useState(0);
 
   const addItem = useCartStore((s) => s.addItem);
   const removeItem = useCartStore((s) => s.removeItem);
@@ -34,15 +35,25 @@ export function useConversation() {
   const messagesRef = useRef<ChatMessage[]>([]);
   const mediaStreamRef = useRef<MediaStream | null>(null);
   const abortRef = useRef<AbortController | null>(null);
+  const streamDoneRef = useRef(false);
 
   const tts = useCartesiaTTS();
   const ttsRef = useRef(tts);
   ttsRef.current = tts;
 
+  // Transition to "listening" when both SSE stream and TTS queue are done
+  useEffect(() => {
+    if (tts.status === "idle" && streamDoneRef.current) {
+      streamDoneRef.current = false;
+      setPhase("listening");
+    }
+  }, [tts.status, streamDoneSignal]);
+
   const sendToChat = useCallback(
     async (userMessage: string) => {
       console.log("[Chat] Sending:", userMessage);
       ttsRef.current.stop();
+      streamDoneRef.current = false;
       setPhase("processing");
       setAssistantText("");
 
@@ -71,6 +82,7 @@ export function useConversation() {
 
         setPhase("responding");
         let fullResponse = "";
+        let sentenceBuffer = "";
 
         const lower = userMessage.toLowerCase();
         if (
@@ -87,6 +99,19 @@ export function useConversation() {
           onText: (delta) => {
             fullResponse += delta;
             setAssistantText(fullResponse);
+
+            // Stream sentences to TTS as they complete
+            sentenceBuffer += delta;
+            const boundaryIdx = sentenceBuffer.search(/[.!?]\s/);
+            if (boundaryIdx >= 0) {
+              const sentence = sentenceBuffer
+                .slice(0, boundaryIdx + 1)
+                .trim();
+              sentenceBuffer = sentenceBuffer.slice(boundaryIdx + 2);
+              if (sentence) {
+                ttsRef.current.enqueue(sentence);
+              }
+            }
           },
           onCartAction: (event: SSEEvent) => {
             if (event.type !== "cart_action") return;
@@ -105,15 +130,17 @@ export function useConversation() {
                 content: fullResponse,
               });
             }
+            // Flush remaining sentence buffer to TTS
+            const remaining = sentenceBuffer.trim();
+            if (remaining) {
+              ttsRef.current.enqueue(remaining);
+              sentenceBuffer = "";
+            }
+
             if (fullResponse.trim()) {
-              ttsRef.current
-                .speak(fullResponse.trim())
-                .catch((err: unknown) => {
-                  const msg =
-                    err instanceof Error ? err.message : "TTS failed";
-                  console.error("[TTS] Playback error:", msg);
-                })
-                .finally(() => setPhase("listening"));
+              // TTS was enqueued — useEffect handles phase transition
+              streamDoneRef.current = true;
+              setStreamDoneSignal((s) => s + 1);
             } else {
               setPhase("listening");
             }
@@ -162,7 +189,10 @@ export function useConversation() {
       },
       onSpeechEnd: (fullTranscript: string) => {
         if (fullTranscript.trim()) {
-          console.log("[Conversation] Speech ended, sending to chat:", fullTranscript.trim());
+          console.log(
+            "[Conversation] Speech ended, sending to chat:",
+            fullTranscript.trim()
+          );
           setTranscript("");
           sendToChatRef.current(fullTranscript.trim());
         }
