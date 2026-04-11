@@ -1,17 +1,17 @@
 # Walletta AI Cashier
 
-AI-powered checkout experience for Erewhon Market. An ultra-premium, minimalist cashier interface designed for iPad Pro landscape, featuring voice-driven cart management via a conversational AI avatar.
+AI-powered checkout experience for Erewhon Market. A premium, voice-driven cashier interface featuring a full-screen conversational AI avatar with glassmorphic cart overlay.
 
 ## Stack
 
 - **Framework:** Next.js 16 (App Router) + TypeScript
-- **Styling:** Tailwind CSS with Erewhon design tokens
+- **Styling:** Tailwind CSS v4 with Erewhon design tokens
 - **Animation:** Framer Motion
 - **AI Chat:** OpenAI GPT-4o with function calling (SSE streaming)
-- **Avatar:** Tavus conversational video API
+- **Avatar:** Tavus conversational video API (4K-ready)
 - **Video:** LiveKit SDK
-- **Speech-to-Text:** Deepgram SDK
-- **Text-to-Speech:** Cartesia
+- **Speech-to-Text:** Deepgram Nova-2 (WebSocket streaming)
+- **Text-to-Speech:** Cartesia Sonic-2 (sentence-level streaming)
 - **State:** Zustand
 - **Validation:** Zod
 
@@ -34,12 +34,13 @@ Fill in your API keys in `.env.local`:
 | Key | Required | Description |
 |-----|----------|-------------|
 | `OPENAI_API_KEY` | Yes | Powers the AI cashier chat route |
+| `DEEPGRAM_API_KEY` | Yes | Speech-to-text |
+| `CARTESIA_API_KEY` | Yes | Text-to-speech |
 | `TAVUS_API_KEY` | Yes | Conversational avatar video |
-| `LIVEKIT_API_KEY` | No | Real-time video transport |
-| `LIVEKIT_API_SECRET` | No | LiveKit auth |
-| `LIVEKIT_URL` | No | LiveKit server URL |
-| `DEEPGRAM_API_KEY` | No | Speech-to-text |
-| `CARTESIA_API_KEY` | No | Text-to-speech |
+| `LIVEKIT_API_KEY` | Yes | Real-time video transport |
+| `LIVEKIT_API_SECRET` | Yes | LiveKit auth |
+| `LIVEKIT_URL` | Yes | LiveKit server URL |
+| `CARTESIA_VOICE_ID` | No | Custom voice (defaults to built-in) |
 
 ### 3. Run dev server
 
@@ -47,7 +48,7 @@ Fill in your API keys in `.env.local`:
 npm run dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) in a browser (best viewed at 1366x1024 / iPad Pro landscape).
+Open [http://localhost:3000](http://localhost:3000) — optimized for iPad Pro (1366x1024).
 
 ## Project Structure
 
@@ -56,54 +57,63 @@ walletta-ai-cashier/
 ├── app/
 │   ├── layout.tsx                        # Root layout with Google Fonts
 │   ├── page.tsx                          # Renders <CashierApp />
+│   ├── globals.css                       # Tailwind v4 theme + glass-theme overrides
 │   └── api/
-│       ├── chat/route.ts                 # GPT-4o SSE streaming + cart function calling
+│       ├── chat/route.ts                 # GPT-4o SSE streaming + function calling + tool follow-up
+│       ├── tts/route.ts                  # Cartesia TTS proxy (WAV audio)
 │       ├── livekit/token/route.ts        # LiveKit JWT endpoint
-│       ├── deepgram/token/route.ts       # Deepgram ephemeral key endpoint
+│       ├── deepgram/token/route.ts       # Deepgram key endpoint
 │       └── tavus/session/route.ts        # Tavus conversation session
 ├── components/
-│   ├── CashierApp.tsx                    # Split-screen layout (45% POS / 55% Avatar)
+│   ├── CashierApp.tsx                    # Portrait layout — full-screen avatar + overlays
+│   ├── BottomSheet.tsx                   # Glassmorphic cart overlay (auto-expand on add)
 │   ├── avatar/
-│   │   ├── AvatarPanel.tsx               # Video panel with Tavus integration
-│   │   └── AvatarOverlay.tsx             # Connection status indicator
+│   │   └── AvatarOverlay.tsx             # Status indicator (Standby/Listening/Speaking)
 │   ├── pos/
-│   │   ├── POSPanel.tsx                  # Cart list + summary
 │   │   ├── CartItem.tsx                  # Animated cart row (Framer Motion)
 │   │   ├── CartSummary.tsx               # Subtotal / Tax (9.5%) / Total
-│   │   └── Receipt.tsx                   # Final receipt with QR code
+│   │   └── Receipt.tsx                   # QR code receipt on checkout
 │   └── ui/
-│       ├── StatusBar.tsx                 # Connection + latency display
-│       └── MicButton.tsx                 # VAD-aware microphone toggle
+│       └── MicButton.tsx                 # Glassmorphic mic toggle
+├── hooks/
+│   ├── useConversation.ts               # Orchestrator: VAD + STT + LLM + streaming TTS
+│   ├── useCartesiaTTS.ts                # Queue-based sentence streaming TTS
+│   ├── useDeepgram.ts                   # Deepgram WebSocket STT + speech_final fallback
+│   ├── useVAD.ts                        # Web Audio API voice activity detection
+│   └── useTavus.ts                      # Tavus session lifecycle
 ├── lib/
 │   ├── catalog.ts                        # Product search and query helpers
 │   ├── cart.ts                           # Pure cart logic functions
 │   ├── sse.ts                            # SSE stream parser
+│   ├── overlay.ts                        # Status mapping + config
 │   ├── livekit.ts                        # LiveKit room helpers
 │   └── schemas.ts                        # Zod schemas for all data types
 ├── data/
 │   └── products.json                     # 45 Erewhon products (23 smoothies, 22 coffee & tonics)
-├── hooks/
-│   ├── useCart.ts                        # Cart state + SSE listener
-│   ├── useVAD.ts                         # Voice activity detection
-│   └── useTavus.ts                       # Tavus session lifecycle
 └── store/
-    └── cartStore.ts                      # Zustand cart store
+    └── cartStore.ts                      # Zustand cart store with computed selectors
 ```
 
 ## Architecture
 
-The app uses a split-screen layout optimized for iPad Pro landscape (1366x1024):
+Full-screen portrait layout with the avatar owning the entire viewport:
 
-- **Left panel (45%)** — POS/cart view with real-time item additions via Framer Motion animations
-- **Right panel (55%)** — AI avatar video feed (Tavus + LiveKit)
+- **Background** — Full-screen avatar video (Tavus 4K iframe, gradient placeholder)
+- **Bottom sheet** — Glassmorphic cart overlay (`backdrop-blur-2xl`) that auto-expands when items are added
+- **Floating controls** — Mic button (bottom center) + status indicator (top left) + transcript (top center)
 
-### Chat Flow
+### Voice Pipeline
 
-1. Customer speaks → Deepgram STT → text
-2. Text → `/api/chat` → GPT-4o with product catalog context
-3. GPT-4o calls `add_to_cart` / `remove_from_cart` tools → SSE events
-4. Frontend receives SSE → Zustand store updates → cart animates
-5. GPT-4o text response → Cartesia TTS → avatar speaks
+```
+User speaks → Deepgram STT (WebSocket) → transcript
+         → /api/chat → GPT-4o (SSE streaming + function calling)
+         → cart_action events → Zustand store → bottom sheet updates
+         → text response → sentence-level TTS (Cartesia) → audio queue → playback
+```
+
+**Latency optimization:** Sentences stream to TTS as they complete — the first sentence starts playing while the LLM is still generating the rest.
+
+**Interruption handling:** VAD speech-start immediately stops TTS playback and clears the audio queue.
 
 ### SSE Event Format
 
@@ -124,14 +134,15 @@ Each product includes ingredients, customizations with pricing, and search keywo
 
 ## Design
 
-Erewhon aesthetic — warm cream palette, deep green accents:
+Dark portrait mode with glassmorphism overlays:
 
-| Token | Value | Usage |
-|-------|-------|-------|
-| `--background` | `#F5F0E8` | Page background |
-| `--surface` | `#FDFAF4` | Card/panel fill |
-| `--accent` | `#2D5016` | Erewhon green |
-| `--text-primary` | `#1A1714` | Headings, prices |
+| Element | Style |
+|---------|-------|
+| Background | Dark gradient (`zinc-900` to `black`) |
+| Bottom sheet | `backdrop-blur-2xl bg-black/50 border-white/10` |
+| Status overlay | `backdrop-blur-xl bg-black/40` |
+| Mic button | `bg-white/10 backdrop-blur-xl` (idle) / `bg-accent` (active) |
+| Text | White with opacity variants (`white/90`, `white/70`, `white/45`) |
 
 Typography: **Cormorant Garamond** (display/prices) + **DM Sans** (UI/labels).
 

@@ -5,19 +5,16 @@ test.describe("Cart UI Flow", () => {
     await page.goto("/");
   });
 
-  test("cart starts empty", async ({ page }) => {
-    await expect(page.locator("text=Your cart is empty")).toBeVisible();
+  test("cart bottom sheet is hidden when empty", async ({ page }) => {
+    // No bottom sheet visible when cart is empty
+    const itemCount = page.locator("text=items");
+    await expect(itemCount).not.toBeVisible();
   });
 
   test("mic button is clickable", async ({ page }) => {
     const micButton = page.getByRole("button", { name: /start listening/i });
     await expect(micButton).toBeVisible();
     await expect(micButton).toBeEnabled();
-  });
-
-  test("cart summary not visible when cart is empty", async ({ page }) => {
-    const subtotalLabel = page.locator("text=Subtotal");
-    await expect(subtotalLabel).not.toBeVisible();
   });
 });
 
@@ -42,7 +39,12 @@ test.describe("SSE Cart Integration", () => {
 
     // Parse the cart_action payload from SSE
     const lines = body.split("\n");
-    let cartPayload: { product_id: string; product_name: string; quantity: number; unit_price: number } | null = null;
+    let cartPayload: {
+      product_id: string;
+      product_name: string;
+      quantity: number;
+      unit_price: number;
+    } | null = null;
 
     for (const line of lines) {
       if (!line.startsWith("data: ")) continue;
