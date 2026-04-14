@@ -669,9 +669,103 @@
     "ingredients": ["espresso", "hot water"],
     "customizations": [
       { "label": "Splash of Almond Milk", "price": 0.75 },
+      { "label": "Splash of Oat Milk", "price": 0.75 },
+      { "label": "Splash of Whole Milk", "price": 0.50 },
+      { "label": "Splash of 2% Milk", "price": 0.50 },
+      { "label": "Vanilla Syrup", "price": 0.75 },
+      { "label": "Caramel Syrup", "price": 0.75 },
       { "label": "Extra Shot", "price": 2.25 },
       { "label": "Iced version", "price": 0.00 }
     ],
+    "sizes": [
+      { "label": "12oz", "price_delta": 0.00 },
+      { "label": "16oz", "price_delta": 1.00 },
+      { "label": "20oz", "price_delta": 2.00 }
+    ],
     "search_keywords": ["americano", "espresso", "black coffee", "simple", "classic"]
+  },
+  {
+    "id": "pastry-butter-croissant",
+    "name": "Butter Croissant",
+    "display_name": "Butter Croissant",
+    "category": "pastries",
+    "price": 6.50,
+    "unit": "each",
+    "ingredients": ["organic flour", "european butter", "sea salt", "cane sugar"],
+    "customizations": [
+      { "label": "Warmed", "price": 0.00 },
+      { "label": "Side of Jam", "price": 1.50 }
+    ],
+    "search_keywords": ["croissant", "butter", "pastry", "flaky", "breakfast"]
+  },
+  {
+    "id": "pastry-almond-croissant",
+    "name": "Almond Croissant",
+    "display_name": "Almond Croissant",
+    "category": "pastries",
+    "price": 7.50,
+    "unit": "each",
+    "ingredients": ["organic flour", "european butter", "almond cream", "sliced almonds", "powdered sugar"],
+    "customizations": [
+      { "label": "Warmed", "price": 0.00 },
+      { "label": "Extra Almond Cream", "price": 1.00 }
+    ],
+    "search_keywords": ["almond", "croissant", "pastry", "sweet", "breakfast"]
+  },
+  {
+    "id": "pastry-chocolate-chip-muffin",
+    "name": "Chocolate Chip Muffin",
+    "display_name": "Chocolate Chip Muffin",
+    "category": "pastries",
+    "price": 6.00,
+    "unit": "each",
+    "ingredients": ["organic flour", "cacao chips", "coconut sugar", "almond flour", "eggs"],
+    "customizations": [
+      { "label": "Warmed", "price": 0.00 },
+      { "label": "Gluten Free", "price": 1.50 }
+    ],
+    "search_keywords": ["muffin", "chocolate", "chocolate chip", "sweet", "breakfast"]
+  },
+  {
+    "id": "pastry-blueberry-muffin",
+    "name": "Blueberry Muffin",
+    "display_name": "Blueberry Muffin",
+    "category": "pastries",
+    "price": 6.00,
+    "unit": "each",
+    "ingredients": ["organic flour", "wild blueberries", "lemon zest", "coconut sugar", "eggs"],
+    "customizations": [
+      { "label": "Warmed", "price": 0.00 },
+      { "label": "Gluten Free", "price": 1.50 }
+    ],
+    "search_keywords": ["muffin", "blueberry", "wild", "sweet", "breakfast"]
+  },
+  {
+    "id": "pastry-morning-bun",
+    "name": "Morning Bun",
+    "display_name": "Morning Bun",
+    "category": "pastries",
+    "price": 7.00,
+    "unit": "each",
+    "ingredients": ["laminated dough", "cinnamon", "orange zest", "coconut sugar", "european butter"],
+    "customizations": [
+      { "label": "Warmed", "price": 0.00 },
+      { "label": "Extra Cinnamon Sugar", "price": 0.50 }
+    ],
+    "search_keywords": ["morning bun", "cinnamon", "pastry", "sweet", "breakfast"]
+  },
+  {
+    "id": "pastry-gluten-free-scone",
+    "name": "Gluten Free Scone",
+    "display_name": "Gluten Free Almond Scone",
+    "category": "pastries",
+    "price": 7.50,
+    "unit": "each",
+    "ingredients": ["almond flour", "coconut oil", "maple syrup", "vanilla", "sea salt"],
+    "customizations": [
+      { "label": "Warmed", "price": 0.00 },
+      { "label": "Side of Jam", "price": 1.50 }
+    ],
+    "search_keywords": ["scone", "gluten free", "almond", "pastry", "breakfast"]
   }
 ]

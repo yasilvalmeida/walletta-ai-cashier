@@ -84,4 +84,39 @@ describe("cart logic", () => {
     expect(calculateTax(0)).toBe(0);
     expect(calculateTotal([])).toBe(0);
   });
+
+  it("same product with different modifiers creates separate lines", () => {
+    const first = addItemToCart([], {
+      product_id: "coffee-americano",
+      product_name: "Americano",
+      quantity: 1,
+      unit_price: 5.0,
+      modifiers: [{ label: "Splash of Oat Milk", price: 0.75 }],
+    });
+    const next = addItemToCart(first, {
+      product_id: "coffee-americano",
+      product_name: "Americano",
+      quantity: 1,
+      unit_price: 5.0,
+    });
+    expect(next).toHaveLength(2);
+    expect(next[0].line_total).toBeCloseTo(5.75);
+    expect(next[1].line_total).toBeCloseTo(5.0);
+  });
+
+  it("same product with identical modifiers stacks quantity", () => {
+    const addPayload = {
+      product_id: "coffee-americano",
+      product_name: "Americano",
+      quantity: 1,
+      unit_price: 5.0,
+      size: "16oz",
+      modifiers: [{ label: "Extra Shot", price: 2.25 }],
+    };
+    const first = addItemToCart([], addPayload);
+    const next = addItemToCart(first, addPayload);
+    expect(next).toHaveLength(1);
+    expect(next[0].quantity).toBe(2);
+    expect(next[0].line_total).toBeCloseTo((5.0 + 2.25) * 2);
+  });
 });

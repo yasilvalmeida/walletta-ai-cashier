@@ -5,16 +5,27 @@ export const CustomizationSchema = z.object({
   price: z.number(),
 });
 
+export const SizeOptionSchema = z.object({
+  label: z.string(),
+  price_delta: z.number(),
+});
+
 export const ProductSchema = z.object({
   id: z.string(),
   name: z.string(),
   display_name: z.string(),
-  category: z.enum(["smoothies", "coffee_tonics"]),
+  category: z.enum(["smoothies", "coffee_tonics", "pastries"]),
   price: z.number(),
   unit: z.string(),
   ingredients: z.array(z.string()),
   customizations: z.array(CustomizationSchema),
+  sizes: z.array(SizeOptionSchema).optional(),
   search_keywords: z.array(z.string()),
+});
+
+export const ModifierSchema = z.object({
+  label: z.string(),
+  price: z.number(),
 });
 
 export const OrderItemSchema = z.object({
@@ -23,6 +34,8 @@ export const OrderItemSchema = z.object({
   quantity: z.number().int().positive(),
   unit_price: z.number(),
   line_total: z.number(),
+  size: z.string().optional(),
+  modifiers: z.array(ModifierSchema).optional(),
 });
 
 export const CartEventAddSchema = z.object({
@@ -33,6 +46,8 @@ export const CartEventAddSchema = z.object({
     product_name: z.string(),
     quantity: z.number().int().positive(),
     unit_price: z.number(),
+    size: z.string().optional(),
+    modifiers: z.array(ModifierSchema).optional(),
   }),
 });
 
@@ -74,6 +89,8 @@ export const ChatRequestSchema = z.object({
 
 export type Product = z.infer<typeof ProductSchema>;
 export type Customization = z.infer<typeof CustomizationSchema>;
+export type SizeOption = z.infer<typeof SizeOptionSchema>;
+export type Modifier = z.infer<typeof ModifierSchema>;
 export type OrderItem = z.infer<typeof OrderItemSchema>;
 export type CartEvent = z.infer<typeof CartEventSchema>;
 export type TextEvent = z.infer<typeof TextEventSchema>;

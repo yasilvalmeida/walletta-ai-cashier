@@ -3,8 +3,8 @@ import products from "@/data/products.json";
 import { ProductSchema } from "@/lib/schemas";
 
 describe("products.json", () => {
-  it("has exactly 45 products", () => {
-    expect(products).toHaveLength(45);
+  it("has exactly 51 products", () => {
+    expect(products).toHaveLength(51);
   });
 
   it("has 23 smoothies", () => {
@@ -15,6 +15,11 @@ describe("products.json", () => {
   it("has 22 coffee & tonics", () => {
     const coffee = products.filter((p) => p.category === "coffee_tonics");
     expect(coffee).toHaveLength(22);
+  });
+
+  it("has 6 pastries", () => {
+    const pastries = products.filter((p) => p.category === "pastries");
+    expect(pastries).toHaveLength(6);
   });
 
   it("all products have unique IDs", () => {
@@ -33,6 +38,13 @@ describe("products.json", () => {
     const coffee = products.filter((p) => p.category === "coffee_tonics");
     for (const c of coffee) {
       expect(c.id).toMatch(/^coffee-/);
+    }
+  });
+
+  it("pastry IDs start with 'pastry-'", () => {
+    const pastries = products.filter((p) => p.category === "pastries");
+    for (const p of pastries) {
+      expect(p.id).toMatch(/^pastry-/);
     }
   });
 
@@ -63,6 +75,15 @@ describe("products.json", () => {
       expect(p.search_keywords.length).toBeGreaterThanOrEqual(4);
       expect(p.search_keywords.length).toBeLessThanOrEqual(6);
     }
+  });
+
+  it("Americano exposes multiple milk + size modifiers for upselling", () => {
+    const americano = products.find((p) => p.id === "coffee-americano");
+    expect(americano).toBeDefined();
+    const labels = americano!.customizations.map((c) => c.label.toLowerCase());
+    const milkLabels = labels.filter((l) => l.includes("milk"));
+    expect(milkLabels.length).toBeGreaterThanOrEqual(3);
+    expect(americano!.sizes?.length ?? 0).toBeGreaterThanOrEqual(2);
   });
 
   it("every product passes Zod schema validation", () => {

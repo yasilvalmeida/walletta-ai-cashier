@@ -7,8 +7,8 @@ import {
 } from "@/lib/catalog";
 
 describe("catalog", () => {
-  it("getAllProducts returns 45 items", () => {
-    expect(getAllProducts()).toHaveLength(45);
+  it("getAllProducts returns 51 items", () => {
+    expect(getAllProducts()).toHaveLength(51);
   });
 
   it("getProductById finds Americano", () => {
@@ -48,7 +48,9 @@ describe("catalog", () => {
   it("getProductsByCategory filters correctly", () => {
     const smoothies = getProductsByCategory("smoothies");
     const coffee = getProductsByCategory("coffee_tonics");
+    const pastries = getProductsByCategory("pastries");
     expect(smoothies).toHaveLength(23);
     expect(coffee).toHaveLength(22);
+    expect(pastries).toHaveLength(6);
   });
 });

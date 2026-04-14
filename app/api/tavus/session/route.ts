@@ -1,5 +1,27 @@
 import { NextResponse } from "next/server";
 
+const TAVUS_API = "https://tavusapi.com/v2/conversations";
+const DEFAULT_REPLICA_ID = "r5f0577fc829";
+
+const CONVERSATIONAL_CONTEXT = `You are Jordan, the Erewhon Market cashier AI. Warm, premium, and efficient. Help customers order smoothies, coffee & tonics, and pastries. Ask for cup sizes on coffee drinks, offer milk/shot/syrup modifiers, and pair a pastry with coffee orders when appropriate. Keep responses to two sentences max. Confirm each item as you add it.`;
+
+interface TavusSessionResponse {
+  conversation_id: string;
+  conversation_url: string;
+}
+
+interface TavusConversationRequest {
+  replica_id: string;
+  conversation_name: string;
+  conversational_context: string;
+  persona_id?: string;
+  properties: {
+    max_call_duration: number;
+    participant_left_timeout: number;
+    enable_recording: boolean;
+  };
+}
+
 export async function POST() {
   try {
     const apiKey = process.env.TAVUS_API_KEY;
@@ -11,43 +33,52 @@ export async function POST() {
       );
     }
 
-    // Create a Tavus conversation session
-    const response = await fetch("https://tavusapi.com/v2/conversations", {
+    const replicaId = process.env.TAVUS_REPLICA_ID ?? DEFAULT_REPLICA_ID;
+    const personaId = process.env.TAVUS_PERSONA_ID;
+
+    const payload: TavusConversationRequest = {
+      replica_id: replicaId,
+      conversation_name: "Walletta Cashier Demo",
+      conversational_context: CONVERSATIONAL_CONTEXT,
+      properties: {
+        max_call_duration: 1800,
+        participant_left_timeout: 60,
+        enable_recording: false,
+      },
+    };
+
+    if (personaId) {
+      payload.persona_id = personaId;
+    }
+
+    const response = await fetch(TAVUS_API, {
       method: "POST",
       headers: {
         "x-api-key": apiKey,
         "Content-Type": "application/json",
       },
-      body: JSON.stringify({
-        // replica_id and persona_id will be configured later
-        properties: {
-          max_call_duration: 600,
-          enable_recording: false,
-        },
-      }),
+      body: JSON.stringify(payload),
     });
 
     if (!response.ok) {
-      const error = await response.text();
+      const errorText = await response.text();
       return NextResponse.json(
-        { error: `Tavus API error: ${error}` },
+        { error: `Tavus API error: ${errorText}` },
         { status: response.status }
       );
     }
 
-    const data = (await response.json()) as {
-      conversation_id: string;
-      conversation_url: string;
-    };
+    const data = (await response.json()) as TavusSessionResponse;
 
     return NextResponse.json({
       conversationId: data.conversation_id,
       conversationUrl: data.conversation_url,
+      replicaId,
+      personaId: personaId ?? null,
     });
-  } catch {
-    return NextResponse.json(
-      { error: "Failed to create Tavus session" },
-      { status: 500 }
-    );
+  } catch (err) {
+    const message =
+      err instanceof Error ? err.message : "Failed to create Tavus session";
+    return NextResponse.json({ error: message }, { status: 500 });
   }
 }
