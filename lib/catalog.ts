@@ -3,6 +3,8 @@ import type { Product } from "@/lib/schemas";
 
 const products: Product[] = productsData as Product[];
 
+export type ProductCategory = "smoothies" | "coffee_tonics" | "pastries";
+
 export function getAllProducts(): Product[] {
   return products;
 }
@@ -22,8 +24,6 @@ export function searchProducts(query: string): Product[] {
   );
 }
 
-export function getProductsByCategory(
-  category: "smoothies" | "coffee_tonics"
-): Product[] {
+export function getProductsByCategory(category: ProductCategory): Product[] {
   return products.filter((p) => p.category === category);
 }

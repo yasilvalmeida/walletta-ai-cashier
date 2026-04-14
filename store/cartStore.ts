@@ -1,17 +1,23 @@
 import { create } from "zustand";
-import type { OrderItem } from "@/lib/schemas";
+import type { Modifier, OrderItem } from "@/lib/schemas";
+import { computeLineTotal, lineKey } from "@/lib/cart";
+
+interface AddPayload {
+  product_id: string;
+  product_name: string;
+  quantity: number;
+  unit_price: number;
+  size?: string;
+  modifiers?: Modifier[];
+}
 
 interface CartStore {
   items: OrderItem[];
   receiptReady: boolean;
-  addItem: (payload: {
-    product_id: string;
-    product_name: string;
-    quantity: number;
-    unit_price: number;
-  }) => void;
+  addItem: (payload: AddPayload) => void;
   removeItem: (product_id: string) => void;
-  updateQuantity: (product_id: string, quantity: number) => void;
+  removeLine: (line_id: string) => void;
+  updateQuantity: (line_id: string, quantity: number) => void;
   clearCart: () => void;
   setReceiptReady: (ready: boolean) => void;
 }
@@ -22,50 +28,88 @@ export const useCartStore = create<CartStore>((set) => ({
 
   addItem: (payload) =>
     set((state) => {
-      const existing = state.items.find(
-        (item) => item.product_id === payload.product_id
+      const candidateKey = lineKey({
+        product_id: payload.product_id,
+        size: payload.size,
+        modifiers: payload.modifiers,
+      });
+      const existingIdx = state.items.findIndex(
+        (item) => lineKey(item) === candidateKey
       );
-      if (existing) {
+
+      if (existingIdx >= 0) {
         return {
-          items: state.items.map((item) =>
-            item.product_id === payload.product_id
+          items: state.items.map((item, idx) =>
+            idx === existingIdx
               ? {
                   ...item,
                   quantity: item.quantity + payload.quantity,
-                  line_total:
-                    (item.quantity + payload.quantity) * item.unit_price,
+                  line_total: computeLineTotal(
+                    item.unit_price,
+                    item.quantity + payload.quantity,
+                    item.modifiers
+                  ),
                 }
               : item
           ),
         };
       }
+
       return {
         items: [
           ...state.items,
           {
-            ...payload,
-            line_total: payload.quantity * payload.unit_price,
+            product_id: payload.product_id,
+            product_name: payload.product_name,
+            quantity: payload.quantity,
+            unit_price: payload.unit_price,
+            line_total: computeLineTotal(
+              payload.unit_price,
+              payload.quantity,
+              payload.modifiers
+            ),
+            size: payload.size,
+            modifiers: payload.modifiers,
           },
         ],
       };
     }),
 
   removeItem: (product_id) =>
+    set((state) => {
+      const firstMatchIdx = state.items.findIndex(
+        (item) => item.product_id === product_id
+      );
+      if (firstMatchIdx < 0) return state;
+      return {
+        items: state.items.filter((_, idx) => idx !== firstMatchIdx),
+      };
+    }),
+
+  removeLine: (line_id) =>
     set((state) => ({
-      items: state.items.filter((item) => item.product_id !== product_id),
+      items: state.items.filter((item) => lineKey(item) !== line_id),
     })),
 
-  updateQuantity: (product_id, quantity) =>
+  updateQuantity: (line_id, quantity) =>
     set((state) => {
       if (quantity <= 0) {
         return {
-          items: state.items.filter((item) => item.product_id !== product_id),
+          items: state.items.filter((item) => lineKey(item) !== line_id),
         };
       }
       return {
         items: state.items.map((item) =>
-          item.product_id === product_id
-            ? { ...item, quantity, line_total: quantity * item.unit_price }
+          lineKey(item) === line_id
+            ? {
+                ...item,
+                quantity,
+                line_total: computeLineTotal(
+                  item.unit_price,
+                  quantity,
+                  item.modifiers
+                ),
+              }
             : item
         ),
       };
@@ -76,11 +120,10 @@ export const useCartStore = create<CartStore>((set) => ({
   setReceiptReady: (ready) => set({ receiptReady: ready }),
 }));
 
-// Computed selectors — use these in components for derived values
-export const selectSubtotal = (state: CartStore) =>
+export const selectSubtotal = (state: CartStore): number =>
   state.items.reduce((sum, item) => sum + item.line_total, 0);
 
-export const selectTax = (state: CartStore) => selectSubtotal(state) * 0.095;
+export const selectTax = (state: CartStore): number => selectSubtotal(state) * 0.095;
 
-export const selectTotal = (state: CartStore) =>
+export const selectTotal = (state: CartStore): number =>
   selectSubtotal(state) + selectTax(state);

@@ -1,7 +1,11 @@
 import OpenAI from "openai";
 import { ChatRequestSchema } from "@/lib/schemas";
 import { getAllProducts } from "@/lib/catalog";
-import type { ChatCompletionTool, ChatCompletionMessageParam } from "openai/resources/chat/completions";
+import type { Modifier, OrderItem, Product } from "@/lib/schemas";
+import type {
+  ChatCompletionTool,
+  ChatCompletionMessageParam,
+} from "openai/resources/chat/completions";
 
 const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY,
@@ -13,7 +17,7 @@ const tools: ChatCompletionTool[] = [
     function: {
       name: "add_to_cart",
       description:
-        "Add a product to the customer's cart. Call this when a customer mentions they want a product.",
+        "Add a product to the customer's cart. Call this the moment the customer confirms an item. Include any size and modifiers they requested (milk, extra shot, syrup, warmed, etc).",
       parameters: {
         type: "object",
         properties: {
@@ -31,7 +35,26 @@ const tools: ChatCompletionTool[] = [
           },
           unit_price: {
             type: "number",
-            description: "Price per unit in dollars",
+            description:
+              "Base price per unit in dollars. If a size is chosen, use base price + size price_delta as unit_price.",
+          },
+          size: {
+            type: "string",
+            description:
+              "Optional size label (e.g. '12oz', '16oz'). Only include for products that have a sizes array in the catalog.",
+          },
+          modifiers: {
+            type: "array",
+            description:
+              "Optional modifier list — each modifier matches a label + price from the product's customizations array.",
+            items: {
+              type: "object",
+              properties: {
+                label: { type: "string" },
+                price: { type: "number" },
+              },
+              required: ["label", "price"],
+            },
           },
         },
         required: ["product_id", "product_name", "quantity", "unit_price"],
@@ -58,13 +81,36 @@ const tools: ChatCompletionTool[] = [
   },
 ];
 
-function buildSystemPrompt(
-  cartContext: { product_id: string; product_name: string; quantity: number; unit_price: number; line_total: number }[]
-): string {
+function formatProductForPrompt(p: Product): string {
+  const customs =
+    p.customizations.length > 0
+      ? `\n    modifiers: ${p.customizations
+          .map((c) => `${c.label} (+$${c.price.toFixed(2)})`)
+          .join(", ")}`
+      : "";
+  const sizes =
+    p.sizes && p.sizes.length > 0
+      ? `\n    sizes: ${p.sizes
+          .map((s) => `${s.label} (+$${s.price_delta.toFixed(2)})`)
+          .join(", ")}`
+      : "";
+  return `- ${p.display_name} (${p.id}): $${p.price.toFixed(2)}${sizes}${customs}`;
+}
+
+function buildSystemPrompt(cartContext: OrderItem[]): string {
   const catalog = getAllProducts();
-  const catalogSummary = catalog
-    .map((p) => `- ${p.display_name} (${p.id}): $${p.price.toFixed(2)}`)
-    .join("\n");
+  const smoothies = catalog.filter((p) => p.category === "smoothies");
+  const coffee = catalog.filter((p) => p.category === "coffee_tonics");
+  const pastries = catalog.filter((p) => p.category === "pastries");
+
+  const section = (title: string, items: Product[]): string =>
+    `### ${title}\n${items.map(formatProductForPrompt).join("\n")}`;
+
+  const menu = [
+    section("Smoothies", smoothies),
+    section("Coffee & Tonics", coffee),
+    section("Pastries", pastries),
+  ].join("\n\n");
 
   const subtotal = cartContext.reduce((sum, i) => sum + i.line_total, 0);
   const tax = subtotal * 0.095;
@@ -73,28 +119,50 @@ function buildSystemPrompt(
   const cartSummary =
     cartContext.length > 0
       ? cartContext
-          .map(
-            (i) =>
-              `- ${i.product_name} x${i.quantity} @ $${i.unit_price.toFixed(2)} = $${i.line_total.toFixed(2)}`
-          )
+          .map((i) => {
+            const extras: string[] = [];
+            if (i.size) extras.push(`size: ${i.size}`);
+            if (i.modifiers && i.modifiers.length > 0) {
+              extras.push(
+                `modifiers: ${i.modifiers.map((m: Modifier) => m.label).join(", ")}`
+              );
+            }
+            const extra = extras.length > 0 ? ` [${extras.join("; ")}]` : "";
+            return `- ${i.product_name} x${i.quantity} @ $${i.unit_price.toFixed(2)}${extra} = $${i.line_total.toFixed(2)}`;
+          })
           .join("\n") +
         `\n\nSubtotal: $${subtotal.toFixed(2)}\nTax (9.5%): $${tax.toFixed(2)}\nTotal: $${total.toFixed(2)}`
       : "Cart is empty.";
 
-  return `You are an Erewhon cashier AI. You are warm, premium, and efficient. You help customers add items to their cart by name. When a customer mentions a product, call add_to_cart immediately. Always confirm what you added. Keep responses under 2 sentences.
+  return `You are Jordan, the Erewhon Market cashier AI. You are warm, premium, and revenue-obsessed — a boutique salesperson, never a rigid script. Keep spoken replies to two sentences max.
 
-## Available Products
-${catalogSummary}
+# Upselling Playbook (use judgment — never badger)
+1. **Cup size** — when a customer orders any coffee or tonic that has a sizes array, ask their preferred size if they did not specify. Default to 12oz only after they confirm.
+2. **Modifiers are always on the table** — if a customer asks for milk, oat milk, whole milk, an extra shot, vanilla, caramel, iced, warmed, etc. ALWAYS honor it and attach the matching modifier to add_to_cart. Never refuse a reasonable modifier. If a modifier they request is not on the product, say so briefly and offer the closest real option.
+3. **Pair pastries with coffee** — when a customer orders any coffee/tonic and the cart has no pastry, suggest one pastry by name exactly once. Example: "Would you like a warm butter croissant with that?" Do not repeat if declined.
+4. **Upsell shots + milk on black coffee** — for an Americano, if the customer does not specify, briefly offer: "Would you like milk or an extra shot?"
+5. **Pastries warmed** — when adding a pastry, ask if they'd like it warmed.
+6. **Close confidently** — once the customer signals completion ("that's all", "that's it", "checkout"), summarize the order and confirm the total. Do not keep upselling after they close.
 
-## Current Cart (SOURCE OF TRUTH — always use these quantities and totals)
+# How to fire tools
+- The moment the customer confirms an item, call add_to_cart. Do not wait for them to finish talking about sides.
+- Use the exact product_id and base price from the catalog.
+- If a size was selected, pass unit_price = base price + size price_delta, and pass the size label.
+- Pass modifiers as an array of {label, price} — labels must match the catalog customizations exactly.
+- For removals, use product_id from the current cart.
+
+# Full Menu
+${menu}
+
+# Current Cart (SOURCE OF TRUTH — always use these quantities and totals)
 ${cartSummary}
 
-Rules:
-- Match products by name fuzzy search. Use the exact product_id and price from the catalog.
-- Default quantity is 1 unless the customer specifies otherwise.
-- If a product is not found, politely suggest similar items.
-- For removals, use the product_id from the current cart.
-- When asked about totals, cart summary, or "how much", ONLY use the quantities and totals from the Current Cart section above. Never count from conversation history.`;
+# Rules
+- Match products by fuzzy name/keyword search. Use exact product_id and base price from the catalog.
+- Default quantity is 1.
+- If a product is not on the menu, politely suggest the closest item we do carry.
+- When asked about totals or cart contents, ONLY use the Current Cart section above. Never count from conversation history.
+- Speak like a premium Erewhon host: warm, unhurried, confident. Never robotic.`;
 }
 
 export async function POST(request: Request) {
@@ -138,7 +206,6 @@ export async function POST(request: Request) {
 
             const delta = choice.delta;
 
-            // Stream text deltas
             if (delta.content) {
               const event = JSON.stringify({
                 type: "text",
@@ -149,7 +216,6 @@ export async function POST(request: Request) {
               );
             }
 
-            // Accumulate tool call deltas
             if (delta.tool_calls) {
               for (const tc of delta.tool_calls) {
                 if (!toolCalls[tc.index]) {
@@ -172,8 +238,10 @@ export async function POST(request: Request) {
               }
             }
 
-            // On finish, emit any completed tool calls as cart actions
-            if (choice.finish_reason === "tool_calls" || choice.finish_reason === "stop") {
+            if (
+              choice.finish_reason === "tool_calls" ||
+              choice.finish_reason === "stop"
+            ) {
               if (choice.finish_reason === "tool_calls") {
                 needsFollowUp = true;
               }
@@ -183,6 +251,19 @@ export async function POST(request: Request) {
                   const payload = JSON.parse(tc.arguments);
 
                   if (tc.name === "add_to_cart") {
+                    const modifiers: Modifier[] | undefined = Array.isArray(
+                      payload.modifiers
+                    )
+                      ? payload.modifiers
+                          .filter(
+                            (m: unknown): m is Modifier =>
+                              typeof m === "object" &&
+                              m !== null &&
+                              typeof (m as Modifier).label === "string" &&
+                              typeof (m as Modifier).price === "number"
+                          )
+                      : undefined;
+
                     const event = JSON.stringify({
                       type: "cart_action",
                       action: "add_to_cart",
@@ -191,6 +272,12 @@ export async function POST(request: Request) {
                         product_name: payload.product_name,
                         quantity: payload.quantity || 1,
                         unit_price: payload.unit_price,
+                        ...(typeof payload.size === "string" && payload.size
+                          ? { size: payload.size }
+                          : {}),
+                        ...(modifiers && modifiers.length > 0
+                          ? { modifiers }
+                          : {}),
                       },
                     });
                     controller.enqueue(
@@ -215,8 +302,6 @@ export async function POST(request: Request) {
             }
           }
 
-          // When GPT-4o returns only tool_calls without text, send tool
-          // results back to get a spoken confirmation for the user.
           if (needsFollowUp && Object.keys(toolCalls).length > 0) {
             const assistantMsg: ChatCompletionMessageParam = {
               role: "assistant",
@@ -262,9 +347,7 @@ export async function POST(request: Request) {
           );
         } finally {
           controller.enqueue(
-            encoder.encode(
-              `data: ${JSON.stringify({ type: "done" })}\n\n`
-            )
+            encoder.encode(`data: ${JSON.stringify({ type: "done" })}\n\n`)
           );
           controller.close();
         }

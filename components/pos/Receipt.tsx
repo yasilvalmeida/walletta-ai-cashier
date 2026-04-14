@@ -2,7 +2,19 @@
 
 import { motion } from "framer-motion";
 import { QRCodeSVG } from "qrcode.react";
-import { useCartStore, selectSubtotal, selectTax, selectTotal } from "@/store/cartStore";
+import {
+  useCartStore,
+  selectSubtotal,
+  selectTax,
+  selectTotal,
+} from "@/store/cartStore";
+
+function generateOrderId(): string {
+  if (typeof crypto !== "undefined" && "randomUUID" in crypto) {
+    return `ERW-${crypto.randomUUID().split("-")[0].toUpperCase()}`;
+  }
+  return `ERW-${Date.now().toString(36).toUpperCase()}`;
+}
 
 export function Receipt() {
   const items = useCartStore((s) => s.items);
@@ -11,7 +23,7 @@ export function Receipt() {
   const tax = useCartStore(selectTax);
   const total = useCartStore(selectTotal);
 
-  const orderId = `ERW-${Date.now().toString(36).toUpperCase()}`;
+  const orderId = generateOrderId();
   const timestamp = new Date().toISOString();
 
   const qrData = JSON.stringify({
@@ -19,9 +31,13 @@ export function Receipt() {
     items: items.map((i) => ({
       name: i.product_name,
       qty: i.quantity,
+      size: i.size,
+      modifiers: i.modifiers?.map((m) => m.label),
       price: i.line_total,
     })),
-    total,
+    subtotal: Number(subtotal.toFixed(2)),
+    tax: Number(tax.toFixed(2)),
+    total: Number(total.toFixed(2)),
     timestamp,
   });
 
@@ -33,7 +49,6 @@ export function Receipt() {
       className="flex-1 flex flex-col items-center justify-center"
     >
       <div className="w-full max-w-sm bg-surface-elevated rounded-2xl p-6 shadow-sm border border-border">
-        {/* Header */}
         <div className="text-center mb-6">
           <h2 className="font-display text-2xl font-bold text-text-primary">
             Erewhon Market
@@ -46,35 +61,47 @@ export function Receipt() {
               day: "numeric",
             })}
           </p>
-          <p className="font-sans text-xs text-text-muted">
-            Order {orderId}
-          </p>
+          <p className="font-sans text-xs text-text-muted">Order {orderId}</p>
         </div>
 
-        {/* Divider */}
         <div className="border-t border-dashed border-border mb-4" />
 
-        {/* Items */}
         <div className="space-y-2 mb-4">
-          {items.map((item) => (
-            <div
-              key={item.product_id}
-              className="flex justify-between font-sans text-sm"
-            >
-              <span className="text-text-primary">
-                {item.product_name}
-                {item.quantity > 1 && (
-                  <span className="text-text-muted"> x{item.quantity}</span>
+          {items.map((item, idx) => {
+            const details: string[] = [];
+            if (item.size) details.push(item.size);
+            if (item.modifiers && item.modifiers.length > 0) {
+              details.push(...item.modifiers.map((m) => m.label));
+            }
+            return (
+              <div
+                key={`${item.product_id}-${idx}`}
+                className="font-sans text-sm"
+              >
+                <div className="flex justify-between">
+                  <span className="text-text-primary">
+                    {item.product_name}
+                    {item.quantity > 1 && (
+                      <span className="text-text-muted">
+                        {" "}
+                        x{item.quantity}
+                      </span>
+                    )}
+                  </span>
+                  <span className="text-text-primary tabular-nums">
+                    ${item.line_total.toFixed(2)}
+                  </span>
+                </div>
+                {details.length > 0 && (
+                  <p className="text-xs text-text-muted mt-0.5">
+                    {details.join(" · ")}
+                  </p>
                 )}
-              </span>
-              <span className="text-text-primary tabular-nums">
-                ${item.line_total.toFixed(2)}
-              </span>
-            </div>
-          ))}
+              </div>
+            );
+          })}
         </div>
 
-        {/* Totals */}
         <div className="border-t border-dashed border-border pt-3 space-y-1">
           <div className="flex justify-between font-sans text-xs text-text-muted">
             <span>Subtotal</span>
@@ -90,24 +117,22 @@ export function Receipt() {
           </div>
         </div>
 
-        {/* QR Code */}
         <div className="flex flex-col items-center mt-6 pt-4 border-t border-dashed border-border">
           <QRCodeSVG
             value={qrData}
-            size={120}
+            size={180}
             bgColor="transparent"
             fgColor="#1A1714"
             level="M"
           />
           <p className="font-sans text-xs text-text-muted mt-2">
-            Scan for digital receipt
+            Scan to save your receipt
           </p>
         </div>
 
-        {/* New Order */}
         <button
           onClick={clearCart}
-          className="mt-6 w-full py-2.5 bg-accent text-surface-elevated font-sans text-sm font-medium rounded-lg hover:bg-accent-light transition-colors"
+          className="mt-6 w-full py-3 min-h-[44px] bg-accent text-surface-elevated font-sans text-sm font-medium rounded-lg hover:bg-accent-light transition-colors"
         >
           New Order
         </button>
