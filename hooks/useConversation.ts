@@ -169,6 +169,13 @@ export function useConversation() {
   const vadOptions = useMemo(
     () => ({
       onSpeechStart: () => {
+        // Guard against echo: if the avatar is currently speaking, the
+        // mic is almost certainly picking up its own voice (iOS echo
+        // cancellation is too weak to suppress it reliably). Refusing
+        // to barge-in here lets TTS finish instead of being killed on
+        // the very first speaker-triggered VAD poll.
+        const s = ttsRef.current.status;
+        if (s === "speaking" || s === "loading") return;
         ttsRef.current.stop();
         setPhase("listening");
       },
@@ -182,12 +189,19 @@ export function useConversation() {
   const deepgramOptions = useMemo(
     () => ({
       onTranscript: (text: string, isFinal: boolean) => {
+        // Same echo guard — Deepgram may also transcribe the avatar's
+        // voice. Showing that echo as a user transcript, or routing it
+        // back into the chat, would feed the model its own output.
+        const s = ttsRef.current.status;
+        if (s === "speaking" || s === "loading") return;
         setTranscript(text);
         if (isFinal) {
           setPhase("listening");
         }
       },
       onSpeechEnd: (fullTranscript: string) => {
+        const s = ttsRef.current.status;
+        if (s === "speaking" || s === "loading") return;
         if (fullTranscript.trim()) {
           console.log(
             "[Conversation] Speech ended, sending to chat:",

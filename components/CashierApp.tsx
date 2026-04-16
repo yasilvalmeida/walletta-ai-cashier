@@ -89,17 +89,26 @@ export function CashierApp() {
 
       <BottomSheet />
 
-      <div className="absolute bottom-[calc(1.5rem+env(safe-area-inset-bottom))] left-1/2 -translate-x-1/2 z-20">
+      <div
+        className="fixed inset-x-0 bottom-0 z-20 flex flex-col items-center pointer-events-none"
+        style={{
+          paddingBottom:
+            "max(1.25rem, calc(env(safe-area-inset-bottom) + 0.75rem))",
+          paddingTop: "0.5rem",
+        }}
+      >
         {conversation.phase === "idle" && !conversation.error && (
-          <p className="font-sans text-xs text-white/40 text-center mb-3">
+          <p className="font-sans text-xs text-white/40 text-center mb-3 pointer-events-auto">
             Tap to start ordering
           </p>
         )}
-        <MicButton
-          isListening={conversation.isListening}
-          isSpeaking={conversation.isSpeaking}
-          onToggle={handleMicToggle}
-        />
+        <div className="pointer-events-auto">
+          <MicButton
+            isListening={conversation.isListening}
+            isSpeaking={conversation.isSpeaking}
+            onToggle={handleMicToggle}
+          />
+        </div>
       </div>
     </div>
   );

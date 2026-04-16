@@ -14,6 +14,8 @@ interface AddPayload {
 interface CartStore {
   items: OrderItem[];
   receiptReady: boolean;
+  orderId: string | null;
+  orderTimestamp: string | null;
   addItem: (payload: AddPayload) => void;
   removeItem: (product_id: string) => void;
   removeLine: (line_id: string) => void;
@@ -22,9 +24,18 @@ interface CartStore {
   setReceiptReady: (ready: boolean) => void;
 }
 
+function generateOrderId(): string {
+  if (typeof crypto !== "undefined" && "randomUUID" in crypto) {
+    return `ERW-${crypto.randomUUID().split("-")[0].toUpperCase()}`;
+  }
+  return `ERW-${Date.now().toString(36).toUpperCase()}`;
+}
+
 export const useCartStore = create<CartStore>((set) => ({
   items: [],
   receiptReady: false,
+  orderId: null,
+  orderTimestamp: null,
 
   addItem: (payload) =>
     set((state) => {
@@ -115,9 +126,23 @@ export const useCartStore = create<CartStore>((set) => ({
       };
     }),
 
-  clearCart: () => set({ items: [], receiptReady: false }),
+  clearCart: () =>
+    set({ items: [], receiptReady: false, orderId: null, orderTimestamp: null }),
 
-  setReceiptReady: (ready) => set({ receiptReady: ready }),
+  setReceiptReady: (ready) =>
+    set((state) => {
+      if (!ready) {
+        return { receiptReady: false, orderId: null, orderTimestamp: null };
+      }
+      // Generate once per checkout. If somehow called twice while already
+      // ready, keep the existing id so the QR does not change.
+      if (state.receiptReady && state.orderId) return { receiptReady: true };
+      return {
+        receiptReady: true,
+        orderId: generateOrderId(),
+        orderTimestamp: new Date().toISOString(),
+      };
+    }),
 }));
 
 export const selectSubtotal = (state: CartStore): number =>

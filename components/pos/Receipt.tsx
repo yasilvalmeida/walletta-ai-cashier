@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useMemo } from "react";
 import { motion } from "framer-motion";
 import { QRCodeSVG } from "qrcode.react";
 import {
@@ -10,30 +10,28 @@ import {
   selectTotal,
 } from "@/store/cartStore";
 
-function generateOrderId(): string {
-  if (typeof crypto !== "undefined" && "randomUUID" in crypto) {
-    return `ERW-${crypto.randomUUID().split("-")[0].toUpperCase()}`;
-  }
-  return `ERW-${Date.now().toString(36).toUpperCase()}`;
-}
-
 export function Receipt() {
   const items = useCartStore((s) => s.items);
   const clearCart = useCartStore((s) => s.clearCart);
   const subtotal = useCartStore(selectSubtotal);
   const tax = useCartStore(selectTax);
   const total = useCartStore(selectTotal);
-
-  const [orderId] = useState(() => generateOrderId());
-  const [timestamp] = useState(() => new Date().toISOString());
-  const [dateLabel] = useState(() =>
-    new Date().toLocaleDateString("en-US", {
+  // Order id and timestamp live in the store and are generated exactly
+  // once when the receipt becomes ready. This guarantees the QR stays
+  // stable even if Receipt remounts for any reason.
+  const storeOrderId = useCartStore((s) => s.orderId);
+  const storeTimestamp = useCartStore((s) => s.orderTimestamp);
+  const orderId = storeOrderId ?? "ERW-PENDING";
+  const timestamp = storeTimestamp ?? "";
+  const dateLabel = useMemo(() => {
+    const d = storeTimestamp ? new Date(storeTimestamp) : new Date();
+    return d.toLocaleDateString("en-US", {
       weekday: "long",
       year: "numeric",
       month: "long",
       day: "numeric",
-    })
-  );
+    });
+  }, [storeTimestamp]);
 
   const qrData = useMemo(
     () =>
