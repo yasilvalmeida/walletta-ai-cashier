@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useRef, useState, useEffect } from "react";
+import { getSharedAudioContext } from "@/lib/audio";
 
 interface DeepgramResult {
   type?: string;
@@ -28,7 +29,7 @@ export function useDeepgram(options: UseDeepgramOptions) {
   const transcriptRef = useRef("");
   const mediaStreamRef = useRef<MediaStream | null>(null);
   const processorRef = useRef<ScriptProcessorNode | null>(null);
-  const audioContextRef = useRef<AudioContext | null>(null);
+  const sourceRef = useRef<MediaStreamAudioSourceNode | null>(null);
   const speechTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Use refs for callbacks to avoid stale closures in WebSocket handlers
@@ -38,12 +39,12 @@ export function useDeepgram(options: UseDeepgramOptions) {
   }, [options]);
 
   const startAudioCapture = useCallback((stream: MediaStream, ws: WebSocket) => {
-    // Browser may not support 16kHz — create at default rate and resample
-    const audioContext = new AudioContext();
-    audioContextRef.current = audioContext;
+    const audioContext = getSharedAudioContext();
+    if (!audioContext) return;
     const nativeSampleRate = audioContext.sampleRate;
 
     const source = audioContext.createMediaStreamSource(stream);
+    sourceRef.current = source;
     const processor = audioContext.createScriptProcessor(4096, 1, 1);
     processorRef.current = processor;
 
@@ -196,13 +197,22 @@ export function useDeepgram(options: UseDeepgramOptions) {
       wsRef.current = null;
     }
     if (processorRef.current) {
-      processorRef.current.disconnect();
+      try {
+        processorRef.current.disconnect();
+      } catch {
+        // already disconnected
+      }
       processorRef.current = null;
     }
-    if (audioContextRef.current) {
-      audioContextRef.current.close();
-      audioContextRef.current = null;
+    if (sourceRef.current) {
+      try {
+        sourceRef.current.disconnect();
+      } catch {
+        // already disconnected
+      }
+      sourceRef.current = null;
     }
+    // AudioContext is shared with TTS + VAD — never close it here.
     if (mediaStreamRef.current) {
       mediaStreamRef.current.getTracks().forEach((t) => t.stop());
       mediaStreamRef.current = null;

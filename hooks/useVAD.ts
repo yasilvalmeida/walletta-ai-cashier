@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useCallback, useRef, useEffect } from "react";
+import { getSharedAudioContext } from "@/lib/audio";
 
 const SPEECH_THRESHOLD = 15;
 const SILENCE_DURATION_MS = 1500;
@@ -25,7 +26,7 @@ export function useVAD(options: UseVADOptions = {}): UseVADReturn {
   const [volume, setVolume] = useState(0);
 
   const analyserRef = useRef<AnalyserNode | null>(null);
-  const audioContextRef = useRef<AudioContext | null>(null);
+  const sourceRef = useRef<MediaStreamAudioSourceNode | null>(null);
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const silenceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const wasSpeakingRef = useRef(false);
@@ -36,10 +37,11 @@ export function useVAD(options: UseVADOptions = {}): UseVADReturn {
   }, [options]);
 
   const startListening = useCallback((stream: MediaStream) => {
-    const audioContext = new AudioContext();
-    audioContextRef.current = audioContext;
+    const audioContext = getSharedAudioContext();
+    if (!audioContext) return;
 
     const source = audioContext.createMediaStreamSource(stream);
+    sourceRef.current = source;
     const analyser = audioContext.createAnalyser();
     analyser.fftSize = 512;
     analyser.smoothingTimeConstant = 0.8;
@@ -90,11 +92,24 @@ export function useVAD(options: UseVADOptions = {}): UseVADReturn {
       clearTimeout(silenceTimerRef.current);
       silenceTimerRef.current = null;
     }
-    if (audioContextRef.current) {
-      audioContextRef.current.close();
-      audioContextRef.current = null;
+    // The AudioContext is shared with TTS + Deepgram — never close it here.
+    // Only disconnect our analyser graph.
+    if (sourceRef.current) {
+      try {
+        sourceRef.current.disconnect();
+      } catch {
+        // already disconnected
+      }
+      sourceRef.current = null;
     }
-    analyserRef.current = null;
+    if (analyserRef.current) {
+      try {
+        analyserRef.current.disconnect();
+      } catch {
+        // already disconnected
+      }
+      analyserRef.current = null;
+    }
     wasSpeakingRef.current = false;
     setIsSpeaking(false);
     setIsListening(false);
