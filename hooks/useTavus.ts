@@ -36,14 +36,15 @@ export function useTavus(options: UseTavusOptions = {}): UseTavusReturn {
   const [session, setSession] = useState<TavusSession | null>(null);
   const [status, setStatus] = useState<TavusStatus>("idle");
   const [error, setError] = useState<string | null>(null);
-  const abortRef = useRef<AbortController | null>(null);
   const activeRef = useRef(true);
+  const inFlightRef = useRef(false);
+  const sessionRef = useRef<TavusSession | null>(null);
 
   const connect = useCallback(async () => {
     if (!activeRef.current) return;
-    abortRef.current?.abort();
-    const controller = new AbortController();
-    abortRef.current = controller;
+    if (inFlightRef.current) return;
+    if (sessionRef.current) return;
+    inFlightRef.current = true;
 
     setStatus("connecting");
     setError(null);
@@ -52,8 +53,9 @@ export function useTavus(options: UseTavusOptions = {}): UseTavusReturn {
       const res = await fetch("/api/tavus/session", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        signal: controller.signal,
       });
+
+      if (!activeRef.current) return;
 
       if (!res.ok) {
         const body = await res.text();
@@ -62,19 +64,21 @@ export function useTavus(options: UseTavusOptions = {}): UseTavusReturn {
 
       const data = (await res.json()) as TavusSession;
       if (!activeRef.current) return;
+      sessionRef.current = data;
       setSession(data);
       setStatus("connected");
     } catch (err) {
-      if (err instanceof DOMException && err.name === "AbortError") return;
-      const msg = err instanceof Error ? err.message : "Tavus connection failed";
       if (!activeRef.current) return;
+      const msg = err instanceof Error ? err.message : "Tavus connection failed";
       setError(msg);
       setStatus("error");
+    } finally {
+      inFlightRef.current = false;
     }
   }, []);
 
   const disconnect = useCallback(() => {
-    abortRef.current?.abort();
+    sessionRef.current = null;
     setSession(null);
     setStatus("idle");
     setError(null);
@@ -95,7 +99,6 @@ export function useTavus(options: UseTavusOptions = {}): UseTavusReturn {
     return () => {
       activeRef.current = false;
       clearTimeout(timer);
-      abortRef.current?.abort();
     };
   }, [autoConnect, warmupDelayMs, connect]);
 

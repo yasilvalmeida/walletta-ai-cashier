@@ -6,6 +6,7 @@ interface TavusStageProps {
   conversationUrl: string | null;
   status: "idle" | "connecting" | "connected" | "ready" | "error";
   errorMessage: string | null;
+  canMount: boolean;
   onReady: () => void;
   onRetry: () => void;
 }
@@ -14,6 +15,7 @@ export function TavusStage({
   conversationUrl,
   status,
   errorMessage,
+  canMount,
   onReady,
   onRetry,
 }: TavusStageProps) {
@@ -21,18 +23,19 @@ export function TavusStage({
     onReady();
   }, [onReady]);
 
+  const shouldMount = canMount && !!conversationUrl;
   const isLoading =
-    status === "connecting" ||
-    (status === "connected" && !!conversationUrl);
+    status === "connecting" || (status === "connected" && shouldMount);
   const isReady = status === "ready";
 
   return (
     <div className="absolute inset-0 bg-[#1A1714] overflow-hidden">
-      {conversationUrl ? (
+      {shouldMount ? (
         <iframe
           key={conversationUrl}
-          src={conversationUrl}
+          src={conversationUrl ?? undefined}
           allow="camera; microphone; fullscreen; display-capture; autoplay"
+          allowFullScreen
           className="w-full h-full border-0"
           title="Erewhon Cashier"
           onLoad={handleLoad}

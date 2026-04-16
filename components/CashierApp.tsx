@@ -1,5 +1,6 @@
 "use client";
 
+import { useCallback, useRef, useState } from "react";
 import { useConversation } from "@/hooks/useConversation";
 import { useTavus } from "@/hooks/useTavus";
 import { AvatarOverlay } from "@/components/avatar/AvatarOverlay";
@@ -16,6 +17,20 @@ export function CashierApp() {
   );
 
   const tavus = useTavus({ autoConnect: true, warmupDelayMs: 3000 });
+  const [hasInteracted, setHasInteracted] = useState(false);
+  const interactedRef = useRef(false);
+
+  const handleMicToggle = useCallback(() => {
+    if (!interactedRef.current) {
+      interactedRef.current = true;
+      setHasInteracted(true);
+    }
+    if (conversation.isListening) {
+      conversation.stop();
+    } else {
+      void conversation.start();
+    }
+  }, [conversation]);
 
   return (
     <div className="relative h-screen w-screen overflow-hidden bg-black">
@@ -23,6 +38,7 @@ export function CashierApp() {
         conversationUrl={tavus.session?.conversationUrl ?? null}
         status={tavus.status}
         errorMessage={tavus.error}
+        canMount={hasInteracted}
         onReady={tavus.markReady}
         onRetry={() => void tavus.connect()}
       />
@@ -82,9 +98,7 @@ export function CashierApp() {
         <MicButton
           isListening={conversation.isListening}
           isSpeaking={conversation.isSpeaking}
-          onToggle={
-            conversation.isListening ? conversation.stop : conversation.start
-          }
+          onToggle={handleMicToggle}
         />
       </div>
     </div>
