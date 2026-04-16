@@ -56,8 +56,18 @@ export async function POST(request: Request) {
       );
     }
 
-    const replicaId = process.env.TAVUS_REPLICA_ID ?? DEFAULT_REPLICA_ID;
-    const personaId = process.env.TAVUS_PERSONA_ID ?? DEFAULT_PERSONA_ID;
+    // `||` not `??` so an empty-string env var (common accidental value on
+    // Vercel) falls through to the defaults instead of being sent as "".
+    const replicaId =
+      (process.env.TAVUS_REPLICA_ID || "").trim() || DEFAULT_REPLICA_ID;
+    const personaId =
+      (process.env.TAVUS_PERSONA_ID || "").trim() || DEFAULT_PERSONA_ID;
+    console.log(
+      "[Tavus] replica_id:",
+      replicaId,
+      "persona_id:",
+      personaId
+    );
     const baseUrl = resolveBaseUrl(request);
     const callbackUrl = baseUrl ? `${baseUrl}/api/tavus/webhook` : undefined;
 
