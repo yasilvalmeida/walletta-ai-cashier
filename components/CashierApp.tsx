@@ -33,83 +33,96 @@ export function CashierApp() {
   }, [conversation]);
 
   return (
-    <div className="relative h-dvh w-screen overflow-hidden bg-black">
-      <TavusStage
-        conversationUrl={tavus.session?.conversationUrl ?? null}
-        status={tavus.status}
-        errorMessage={tavus.error}
-        canMount={hasInteracted}
-        onReady={tavus.markReady}
-        onRetry={() => void tavus.connect()}
-      />
+    <div className="relative h-dvh w-screen overflow-hidden bg-black flex flex-col">
+      {/* Avatar stage — takes all remaining vertical space */}
+      <div className="relative flex-1 min-h-0 w-full">
+        <TavusStage
+          conversationUrl={tavus.session?.conversationUrl ?? null}
+          status={tavus.status}
+          errorMessage={tavus.error}
+          canMount={hasInteracted}
+          onReady={tavus.markReady}
+          onRetry={() => void tavus.connect()}
+        />
 
-      {conversation.phase === "processing" && tavus.status !== "ready" && (
-        <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
-          <div className="flex gap-2">
-            <span className="w-2.5 h-2.5 rounded-full bg-white/70 animate-bounce [animation-delay:0ms]" />
-            <span className="w-2.5 h-2.5 rounded-full bg-white/70 animate-bounce [animation-delay:150ms]" />
-            <span className="w-2.5 h-2.5 rounded-full bg-white/70 animate-bounce [animation-delay:300ms]" />
+        {conversation.phase === "processing" && tavus.status !== "ready" && (
+          <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+            <div className="flex gap-2">
+              <span className="w-2.5 h-2.5 rounded-full bg-white/70 animate-bounce [animation-delay:0ms]" />
+              <span className="w-2.5 h-2.5 rounded-full bg-white/70 animate-bounce [animation-delay:150ms]" />
+              <span className="w-2.5 h-2.5 rounded-full bg-white/70 animate-bounce [animation-delay:300ms]" />
+            </div>
           </div>
-        </div>
-      )}
+        )}
 
-      <div className="absolute top-[calc(1.5rem+env(safe-area-inset-top))] left-6 z-10">
-        <AvatarOverlay status={overlayStatus} />
+        <div
+          className="absolute left-6 z-10"
+          style={{ top: "calc(1.25rem + env(safe-area-inset-top))" }}
+        >
+          <AvatarOverlay status={overlayStatus} />
+        </div>
+
+        {(conversation.transcript ||
+          (conversation.assistantText &&
+            conversation.phase === "responding")) && (
+          <div
+            className="absolute left-1/2 -translate-x-1/2 z-10 max-w-lg w-[90%]"
+            style={{ top: "calc(1.25rem + env(safe-area-inset-top))" }}
+          >
+            <div className="backdrop-blur-2xl bg-black/40 rounded-2xl px-5 py-3 border border-white/10">
+              {conversation.transcript &&
+                conversation.phase === "listening" && (
+                  <p className="font-sans text-sm text-white/70 italic text-center">
+                    &ldquo;{conversation.transcript}&rdquo;
+                  </p>
+                )}
+              {conversation.assistantText &&
+                conversation.phase === "responding" && (
+                  <p className="font-sans text-sm text-white/90 text-center">
+                    {conversation.assistantText}
+                  </p>
+                )}
+            </div>
+          </div>
+        )}
+
+        {conversation.error && (
+          <div
+            className="absolute left-1/2 -translate-x-1/2 z-10"
+            style={{ top: "calc(4.5rem + env(safe-area-inset-top))" }}
+          >
+            <div className="backdrop-blur-xl bg-red-900/40 rounded-xl px-4 py-2 border border-red-500/20">
+              <p className="font-sans text-xs text-red-300">
+                {conversation.error}
+              </p>
+            </div>
+          </div>
+        )}
       </div>
 
-      {(conversation.transcript ||
-        (conversation.assistantText &&
-          conversation.phase === "responding")) && (
-        <div className="absolute top-[calc(1.5rem+env(safe-area-inset-top))] left-1/2 -translate-x-1/2 z-10 max-w-lg w-[90%]">
-          <div className="backdrop-blur-2xl bg-black/40 rounded-2xl px-5 py-3 border border-white/10">
-            {conversation.transcript && conversation.phase === "listening" && (
-              <p className="font-sans text-sm text-white/70 italic text-center">
-                &ldquo;{conversation.transcript}&rdquo;
-              </p>
-            )}
-            {conversation.assistantText &&
-              conversation.phase === "responding" && (
-                <p className="font-sans text-sm text-white/90 text-center">
-                  {conversation.assistantText}
-                </p>
-              )}
-          </div>
-        </div>
-      )}
-
-      {conversation.error && (
-        <div className="absolute top-[calc(5rem+env(safe-area-inset-top))] left-1/2 -translate-x-1/2 z-10">
-          <div className="backdrop-blur-xl bg-red-900/40 rounded-xl px-4 py-2 border border-red-500/20">
-            <p className="font-sans text-xs text-red-300">
-              {conversation.error}
-            </p>
-          </div>
-        </div>
-      )}
-
-      <BottomSheet />
-
+      {/* Mic footer — flex-sized, always visible above the home indicator */}
       <div
-        className="fixed inset-x-0 bottom-0 z-20 flex flex-col items-center pointer-events-none"
+        className="relative z-20 flex-shrink-0 flex flex-col items-center w-full"
         style={{
-          paddingBottom:
-            "max(1.25rem, calc(env(safe-area-inset-bottom) + 0.75rem))",
-          paddingTop: "0.5rem",
+          paddingTop: "0.75rem",
+          paddingBottom: "max(0.875rem, env(safe-area-inset-bottom))",
         }}
       >
         {conversation.phase === "idle" && !conversation.error && (
-          <p className="font-sans text-xs text-white/40 text-center mb-3 pointer-events-auto">
+          <p className="font-sans text-xs text-white/40 text-center mb-2.5">
             Tap to start ordering
           </p>
         )}
-        <div className="pointer-events-auto">
-          <MicButton
-            isListening={conversation.isListening}
-            isSpeaking={conversation.isSpeaking}
-            onToggle={handleMicToggle}
-          />
-        </div>
+        <MicButton
+          isListening={conversation.isListening}
+          isSpeaking={conversation.isSpeaking}
+          onToggle={handleMicToggle}
+        />
       </div>
+
+      {/* BottomSheet overlays the whole stack (receipt is full-screen, cart
+          hovers above the mic footer). Rendered last so it wins the z-stack. */}
+      <BottomSheet />
     </div>
   );
 }

@@ -115,6 +115,18 @@ export function useConversation() {
           },
           onCartAction: (event: SSEEvent) => {
             if (event.type !== "cart_action") return;
+            // Freeze the cart once the receipt is ready. Without this the
+            // LLM can emit stray add/remove actions during the checkout
+            // response which in turn mutates `items`, invalidates the
+            // Receipt's memoised qrData, and causes the QR to redraw on
+            // every SSE frame.
+            if (useCartStore.getState().receiptReady) {
+              console.log(
+                "[Chat] Ignoring cart action after receipt is ready:",
+                event.action
+              );
+              return;
+            }
             console.log("[Chat] Cart action:", event.action, event.payload);
             if (event.action === "add_to_cart") {
               addItem(event.payload);

@@ -1,6 +1,10 @@
 "use client";
 
 import { useCallback, useRef, useState } from "react";
+import {
+  getSharedAudioContext,
+  resumeSharedAudioContext,
+} from "@/lib/audio";
 
 type TTSStatus = "idle" | "loading" | "speaking";
 
@@ -11,13 +15,8 @@ interface UseCartesiaTTSReturn {
   unlock: () => void;
 }
 
-type WebkitAudioWindow = Window & {
-  webkitAudioContext?: typeof AudioContext;
-};
-
 export function useCartesiaTTS(): UseCartesiaTTSReturn {
   const [status, setStatus] = useState<TTSStatus>("idle");
-  const audioCtxRef = useRef<AudioContext | null>(null);
   const currentSourceRef = useRef<AudioBufferSourceNode | null>(null);
   const queueRef = useRef<Array<Promise<ArrayBuffer | null>>>([]);
   const processingRef = useRef(false);
@@ -25,22 +24,9 @@ export function useCartesiaTTS(): UseCartesiaTTSReturn {
   const unlockedRef = useRef(false);
   const currentDoneRef = useRef<(() => void) | null>(null);
 
-  const getAudioCtx = useCallback((): AudioContext | null => {
-    if (typeof window === "undefined") return null;
-    if (!audioCtxRef.current) {
-      const w = window as WebkitAudioWindow;
-      const Ctor = window.AudioContext ?? w.webkitAudioContext;
-      if (!Ctor) return null;
-      audioCtxRef.current = new Ctor();
-    }
-    return audioCtxRef.current;
-  }, []);
-
   const decodeBuffer = useCallback(
     (ctx: AudioContext, arrayBuffer: ArrayBuffer): Promise<AudioBuffer | null> =>
       new Promise((resolve) => {
-        // Safari's decodeAudioData prefers the callback form; also slice()
-        // to give it a dedicated ArrayBuffer (some impls detach on decode).
         try {
           ctx.decodeAudioData(
             arrayBuffer.slice(0),
@@ -63,26 +49,37 @@ export function useCartesiaTTS(): UseCartesiaTTSReturn {
       if (processingRef.current) return;
       processingRef.current = true;
 
-      const ctx = getAudioCtx();
+      const ctx = getSharedAudioContext();
+      if (!ctx) {
+        processingRef.current = false;
+        return;
+      }
 
       while (queueRef.current.length > 0 && genRef.current === gen) {
         const bufferPromise = queueRef.current.shift()!;
         const arrayBuffer = await bufferPromise;
 
-        if (genRef.current !== gen || !arrayBuffer || !ctx) continue;
+        if (genRef.current !== gen || !arrayBuffer) continue;
 
-        if (ctx.state === "suspended") {
-          try {
-            await ctx.resume();
-          } catch {
-            // If resume fails, let the decode/play attempt surface a warning.
-          }
+        // Force-resume every cycle — iOS can silently re-suspend the
+        // context after session changes (e.g. getUserMedia promoting to
+        // playAndRecord). Without this, source.start() plays into the
+        // void and onended never fires.
+        const postState = await resumeSharedAudioContext();
+        if (postState !== "running") {
+          console.warn("[TTS] ctx not running after resume:", postState);
         }
 
         const audioBuffer = await decodeBuffer(ctx, arrayBuffer);
         if (!audioBuffer || genRef.current !== gen) continue;
 
         setStatus("speaking");
+        console.log(
+          "[TTS] Playing",
+          audioBuffer.duration.toFixed(2),
+          "s, ctx:",
+          ctx.state
+        );
 
         await new Promise<void>((resolve) => {
           const source = ctx.createBufferSource();
@@ -114,6 +111,17 @@ export function useCartesiaTTS(): UseCartesiaTTSReturn {
             console.warn("[TTS] source.start failed:", err);
             done();
           }
+
+          // Safety: if onended never fires (ctx stalled, buffer played
+          // into a suspended destination, etc.) the queue would hang
+          // forever. Fall through after buffer duration + 1.5 s.
+          const safetyMs = Math.ceil(audioBuffer.duration * 1000) + 1500;
+          setTimeout(() => {
+            if (!settled) {
+              console.warn("[TTS] Playback timeout — forcing next");
+              done();
+            }
+          }, safetyMs);
         });
       }
 
@@ -122,7 +130,7 @@ export function useCartesiaTTS(): UseCartesiaTTSReturn {
         setStatus("idle");
       }
     },
-    [getAudioCtx, decodeBuffer]
+    [decodeBuffer]
   );
 
   const enqueue = useCallback(
@@ -182,7 +190,7 @@ export function useCartesiaTTS(): UseCartesiaTTSReturn {
 
   const unlock = useCallback(() => {
     if (unlockedRef.current) return;
-    const ctx = getAudioCtx();
+    const ctx = getSharedAudioContext();
     if (!ctx) return;
 
     const resumePromise =
@@ -190,7 +198,6 @@ export function useCartesiaTTS(): UseCartesiaTTSReturn {
 
     resumePromise
       .then(() => {
-        // Play a 1-sample silent buffer to fully unlock Web Audio on iOS.
         try {
           const buffer = ctx.createBuffer(1, 1, 22050);
           const source = ctx.createBufferSource();
@@ -198,6 +205,7 @@ export function useCartesiaTTS(): UseCartesiaTTSReturn {
           source.connect(ctx.destination);
           source.start(0);
           unlockedRef.current = true;
+          console.log("[TTS] Unlocked, ctx:", ctx.state);
         } catch (err) {
           console.warn("[TTS] Unlock silent-buffer failed:", err);
         }
@@ -205,7 +213,7 @@ export function useCartesiaTTS(): UseCartesiaTTSReturn {
       .catch((err) => {
         console.warn("[TTS] Unlock resume rejected:", err);
       });
-  }, [getAudioCtx]);
+  }, []);
 
   return { status, enqueue, stop, unlock };
 }
