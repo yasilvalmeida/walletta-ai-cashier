@@ -213,6 +213,11 @@ export function useConversation() {
     setPhase("idle");
     console.log("[Conversation] Starting...");
 
+    // iOS/iPad Safari blocks audio playback until the element has been
+    // played once inside a user gesture. This call MUST stay synchronous
+    // (before the first await) so it runs in the click handler's stack.
+    ttsRef.current.unlock();
+
     try {
       const stream = await navigator.mediaDevices.getUserMedia({
         audio: {
