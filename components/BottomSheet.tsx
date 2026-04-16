@@ -36,7 +36,7 @@ export function BottomSheet() {
   }
 
   return (
-    <div className="absolute bottom-20 left-4 right-4 z-10 glass-theme">
+    <div className="absolute bottom-[calc(8rem+env(safe-area-inset-bottom))] left-4 right-4 z-10 glass-theme">
       <div className="backdrop-blur-2xl bg-black/50 border border-white/10 rounded-2xl overflow-hidden shadow-2xl">
         {/* Handle + collapsed summary */}
         <button

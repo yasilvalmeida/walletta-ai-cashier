@@ -11,69 +11,108 @@ interface UseCartesiaTTSReturn {
   unlock: () => void;
 }
 
-// Minimal valid WAV (36 bytes, 0 samples) used to prime the audio element
-// inside a user gesture so iOS/iPad Safari will allow subsequent playback.
-const SILENT_WAV_DATA_URI =
-  "data:audio/wav;base64,UklGRiQAAABXQVZFZm10IBAAAAABAAEARKwAAIhYAQACABAAZGF0YQAAAAA=";
+type WebkitAudioWindow = Window & {
+  webkitAudioContext?: typeof AudioContext;
+};
 
 export function useCartesiaTTS(): UseCartesiaTTSReturn {
   const [status, setStatus] = useState<TTSStatus>("idle");
-  const audioElRef = useRef<HTMLAudioElement | null>(null);
-  const unlockedRef = useRef(false);
-  const queueRef = useRef<Array<Promise<string | null>>>([]);
+  const audioCtxRef = useRef<AudioContext | null>(null);
+  const currentSourceRef = useRef<AudioBufferSourceNode | null>(null);
+  const queueRef = useRef<Array<Promise<ArrayBuffer | null>>>([]);
   const processingRef = useRef(false);
   const genRef = useRef(0);
+  const unlockedRef = useRef(false);
+  const currentDoneRef = useRef<(() => void) | null>(null);
 
-  const getAudioEl = useCallback((): HTMLAudioElement | null => {
+  const getAudioCtx = useCallback((): AudioContext | null => {
     if (typeof window === "undefined") return null;
-    if (!audioElRef.current) {
-      const el = new Audio();
-      el.preload = "auto";
-      audioElRef.current = el;
+    if (!audioCtxRef.current) {
+      const w = window as WebkitAudioWindow;
+      const Ctor = window.AudioContext ?? w.webkitAudioContext;
+      if (!Ctor) return null;
+      audioCtxRef.current = new Ctor();
     }
-    return audioElRef.current;
+    return audioCtxRef.current;
   }, []);
+
+  const decodeBuffer = useCallback(
+    (ctx: AudioContext, arrayBuffer: ArrayBuffer): Promise<AudioBuffer | null> =>
+      new Promise((resolve) => {
+        // Safari's decodeAudioData prefers the callback form; also slice()
+        // to give it a dedicated ArrayBuffer (some impls detach on decode).
+        try {
+          ctx.decodeAudioData(
+            arrayBuffer.slice(0),
+            (decoded) => resolve(decoded),
+            (err) => {
+              console.warn("[TTS] decodeAudioData failed:", err);
+              resolve(null);
+            }
+          );
+        } catch (err) {
+          console.warn("[TTS] decodeAudioData threw:", err);
+          resolve(null);
+        }
+      }),
+    []
+  );
 
   const processQueue = useCallback(
     async (gen: number) => {
       if (processingRef.current) return;
       processingRef.current = true;
 
-      const audio = getAudioEl();
+      const ctx = getAudioCtx();
 
       while (queueRef.current.length > 0 && genRef.current === gen) {
-        const urlPromise = queueRef.current.shift()!;
-        const url = await urlPromise;
+        const bufferPromise = queueRef.current.shift()!;
+        const arrayBuffer = await bufferPromise;
 
-        if (genRef.current !== gen || !url || !audio) {
-          if (url) URL.revokeObjectURL(url);
-          continue;
+        if (genRef.current !== gen || !arrayBuffer || !ctx) continue;
+
+        if (ctx.state === "suspended") {
+          try {
+            await ctx.resume();
+          } catch {
+            // If resume fails, let the decode/play attempt surface a warning.
+          }
         }
+
+        const audioBuffer = await decodeBuffer(ctx, arrayBuffer);
+        if (!audioBuffer || genRef.current !== gen) continue;
 
         setStatus("speaking");
 
         await new Promise<void>((resolve) => {
+          const source = ctx.createBufferSource();
+          source.buffer = audioBuffer;
+          source.connect(ctx.destination);
+          currentSourceRef.current = source;
+
           let settled = false;
           const done = () => {
             if (settled) return;
             settled = true;
-            audio.onended = null;
-            audio.onerror = null;
-            audio.onpause = null;
-            URL.revokeObjectURL(url);
+            try {
+              source.disconnect();
+            } catch {
+              // already disconnected
+            }
+            if (currentSourceRef.current === source) {
+              currentSourceRef.current = null;
+            }
+            currentDoneRef.current = null;
             resolve();
           };
+          currentDoneRef.current = done;
+          source.onended = done;
 
-          audio.onended = done;
-          audio.onerror = done;
-          audio.onpause = done;
-          audio.src = url;
-          const playPromise = audio.play();
-          if (playPromise && typeof playPromise.catch === "function") {
-            playPromise.catch((err) => {
-              console.warn("[TTS] Playback failed:", err);
-              done();
-            });
+          try {
+            source.start();
+          } catch (err) {
+            console.warn("[TTS] source.start failed:", err);
+            done();
           }
         });
       }
@@ -83,7 +122,7 @@ export function useCartesiaTTS(): UseCartesiaTTSReturn {
         setStatus("idle");
       }
     },
-    [getAudioEl]
+    [getAudioCtx, decodeBuffer]
   );
 
   const enqueue = useCallback(
@@ -93,7 +132,7 @@ export function useCartesiaTTS(): UseCartesiaTTSReturn {
       const gen = genRef.current;
       setStatus((prev) => (prev === "idle" ? "loading" : prev));
 
-      const audioPromise = fetch("/api/tts", {
+      const bufferPromise = fetch("/api/tts", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ text }),
@@ -102,16 +141,12 @@ export function useCartesiaTTS(): UseCartesiaTTSReturn {
           if (!res.ok) throw new Error(`TTS ${res.status}`);
           return res.arrayBuffer();
         })
-        .then((buf) => {
-          const blob = new Blob([buf], { type: "audio/wav" });
-          return URL.createObjectURL(blob);
-        })
         .catch((err: unknown) => {
           console.error("[TTS] Fetch error:", err);
           return null;
         });
 
-      queueRef.current.push(audioPromise);
+      queueRef.current.push(bufferPromise);
 
       if (!processingRef.current) {
         void processQueue(gen);
@@ -125,12 +160,21 @@ export function useCartesiaTTS(): UseCartesiaTTSReturn {
     processingRef.current = false;
     queueRef.current = [];
 
-    const audio = audioElRef.current;
-    if (audio) {
-      audio.onended = null;
-      audio.onerror = null;
-      audio.onpause = null;
-      audio.pause();
+    if (currentSourceRef.current) {
+      try {
+        currentSourceRef.current.stop();
+      } catch {
+        // already stopped
+      }
+      try {
+        currentSourceRef.current.disconnect();
+      } catch {
+        // already disconnected
+      }
+      currentSourceRef.current = null;
+    }
+    if (currentDoneRef.current) {
+      currentDoneRef.current();
     }
 
     setStatus("idle");
@@ -138,30 +182,30 @@ export function useCartesiaTTS(): UseCartesiaTTSReturn {
 
   const unlock = useCallback(() => {
     if (unlockedRef.current) return;
-    const audio = getAudioEl();
-    if (!audio) return;
-    unlockedRef.current = true;
+    const ctx = getAudioCtx();
+    if (!ctx) return;
 
-    try {
-      audio.muted = true;
-      audio.src = SILENT_WAV_DATA_URI;
-      const p = audio.play();
-      const restore = () => {
-        audio.pause();
-        audio.currentTime = 0;
-        audio.muted = false;
-      };
-      if (p && typeof p.then === "function") {
-        p.then(restore).catch(() => {
-          audio.muted = false;
-        });
-      } else {
-        restore();
-      }
-    } catch {
-      audio.muted = false;
-    }
-  }, [getAudioEl]);
+    const resumePromise =
+      ctx.state === "suspended" ? ctx.resume() : Promise.resolve();
+
+    resumePromise
+      .then(() => {
+        // Play a 1-sample silent buffer to fully unlock Web Audio on iOS.
+        try {
+          const buffer = ctx.createBuffer(1, 1, 22050);
+          const source = ctx.createBufferSource();
+          source.buffer = buffer;
+          source.connect(ctx.destination);
+          source.start(0);
+          unlockedRef.current = true;
+        } catch (err) {
+          console.warn("[TTS] Unlock silent-buffer failed:", err);
+        }
+      })
+      .catch((err) => {
+        console.warn("[TTS] Unlock resume rejected:", err);
+      });
+  }, [getAudioCtx]);
 
   return { status, enqueue, stop, unlock };
 }

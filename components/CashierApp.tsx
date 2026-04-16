@@ -33,7 +33,7 @@ export function CashierApp() {
   }, [conversation]);
 
   return (
-    <div className="relative h-screen w-screen overflow-hidden bg-black">
+    <div className="relative h-dvh w-screen overflow-hidden bg-black">
       <TavusStage
         conversationUrl={tavus.session?.conversationUrl ?? null}
         status={tavus.status}
@@ -53,14 +53,14 @@ export function CashierApp() {
         </div>
       )}
 
-      <div className="absolute top-6 left-6 z-10">
+      <div className="absolute top-[calc(1.5rem+env(safe-area-inset-top))] left-6 z-10">
         <AvatarOverlay status={overlayStatus} />
       </div>
 
       {(conversation.transcript ||
         (conversation.assistantText &&
           conversation.phase === "responding")) && (
-        <div className="absolute top-6 left-1/2 -translate-x-1/2 z-10 max-w-lg w-[90%]">
+        <div className="absolute top-[calc(1.5rem+env(safe-area-inset-top))] left-1/2 -translate-x-1/2 z-10 max-w-lg w-[90%]">
           <div className="backdrop-blur-2xl bg-black/40 rounded-2xl px-5 py-3 border border-white/10">
             {conversation.transcript && conversation.phase === "listening" && (
               <p className="font-sans text-sm text-white/70 italic text-center">
@@ -78,7 +78,7 @@ export function CashierApp() {
       )}
 
       {conversation.error && (
-        <div className="absolute top-20 left-1/2 -translate-x-1/2 z-10">
+        <div className="absolute top-[calc(5rem+env(safe-area-inset-top))] left-1/2 -translate-x-1/2 z-10">
           <div className="backdrop-blur-xl bg-red-900/40 rounded-xl px-4 py-2 border border-red-500/20">
             <p className="font-sans text-xs text-red-300">
               {conversation.error}
@@ -89,7 +89,7 @@ export function CashierApp() {
 
       <BottomSheet />
 
-      <div className="absolute bottom-6 left-1/2 -translate-x-1/2 z-20">
+      <div className="absolute bottom-[calc(1.5rem+env(safe-area-inset-bottom))] left-1/2 -translate-x-1/2 z-20">
         {conversation.phase === "idle" && !conversation.error && (
           <p className="font-sans text-xs text-white/40 text-center mb-3">
             Tap to start ordering
