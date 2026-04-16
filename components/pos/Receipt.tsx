@@ -1,5 +1,6 @@
 "use client";
 
+import { useMemo, useState } from "react";
 import { motion } from "framer-motion";
 import { QRCodeSVG } from "qrcode.react";
 import {
@@ -23,23 +24,35 @@ export function Receipt() {
   const tax = useCartStore(selectTax);
   const total = useCartStore(selectTotal);
 
-  const orderId = generateOrderId();
-  const timestamp = new Date().toISOString();
+  const [orderId] = useState(() => generateOrderId());
+  const [timestamp] = useState(() => new Date().toISOString());
+  const [dateLabel] = useState(() =>
+    new Date().toLocaleDateString("en-US", {
+      weekday: "long",
+      year: "numeric",
+      month: "long",
+      day: "numeric",
+    })
+  );
 
-  const qrData = JSON.stringify({
-    order_id: orderId,
-    items: items.map((i) => ({
-      name: i.product_name,
-      qty: i.quantity,
-      size: i.size,
-      modifiers: i.modifiers?.map((m) => m.label),
-      price: i.line_total,
-    })),
-    subtotal: Number(subtotal.toFixed(2)),
-    tax: Number(tax.toFixed(2)),
-    total: Number(total.toFixed(2)),
-    timestamp,
-  });
+  const qrData = useMemo(
+    () =>
+      JSON.stringify({
+        order_id: orderId,
+        items: items.map((i) => ({
+          name: i.product_name,
+          qty: i.quantity,
+          size: i.size,
+          modifiers: i.modifiers?.map((m) => m.label),
+          price: i.line_total,
+        })),
+        subtotal: Number(subtotal.toFixed(2)),
+        tax: Number(tax.toFixed(2)),
+        total: Number(total.toFixed(2)),
+        timestamp,
+      }),
+    [orderId, items, subtotal, tax, total, timestamp]
+  );
 
   return (
     <motion.div
@@ -53,14 +66,7 @@ export function Receipt() {
           <h2 className="font-display text-2xl font-bold text-text-primary">
             Erewhon Market
           </h2>
-          <p className="font-sans text-xs text-text-muted mt-1">
-            {new Date().toLocaleDateString("en-US", {
-              weekday: "long",
-              year: "numeric",
-              month: "long",
-              day: "numeric",
-            })}
-          </p>
+          <p className="font-sans text-xs text-text-muted mt-1">{dateLabel}</p>
           <p className="font-sans text-xs text-text-muted">Order {orderId}</p>
         </div>
 
