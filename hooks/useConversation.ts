@@ -115,12 +115,14 @@ export function useConversation() {
           },
           onCartAction: (event: SSEEvent) => {
             if (event.type !== "cart_action") return;
-            // Freeze the cart once the receipt is ready. Without this the
-            // LLM can emit stray add/remove actions during the checkout
-            // response which in turn mutates `items`, invalidates the
-            // Receipt's memoised qrData, and causes the QR to redraw on
-            // every SSE frame.
-            if (useCartStore.getState().receiptReady) {
+            // Freeze the cart once the receipt snapshot exists. Without
+            // this the LLM can emit stray add/remove actions during the
+            // checkout response which would mutate `items` — but the
+            // Receipt only reads from the frozen snapshot, so the QR
+            // stays stable either way. Still, we drop the mutation so
+            // the cart summary also stays consistent with what the user
+            // is paying for.
+            if (useCartStore.getState().receiptSnapshot) {
               console.log(
                 "[Chat] Ignoring cart action after receipt is ready:",
                 event.action

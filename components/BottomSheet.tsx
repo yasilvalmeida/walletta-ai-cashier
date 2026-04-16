@@ -9,7 +9,7 @@ import { Receipt } from "@/components/pos/Receipt";
 export function BottomSheet() {
   const [expanded, setExpanded] = useState(false);
   const items = useCartStore((s) => s.items);
-  const receiptReady = useCartStore((s) => s.receiptReady);
+  const receiptSnapshot = useCartStore((s) => s.receiptSnapshot);
   const subtotal = useCartStore(selectSubtotal);
   const tax = useCartStore(selectTax);
   const total = useCartStore(selectTotal);
@@ -25,9 +25,9 @@ export function BottomSheet() {
     }
   }, [items.length]);
 
-  if (items.length === 0 && !receiptReady) return null;
+  if (items.length === 0 && !receiptSnapshot) return null;
 
-  if (receiptReady) {
+  if (receiptSnapshot) {
     return (
       <div className="absolute inset-0 z-30 flex items-center justify-center bg-black/60 backdrop-blur-sm">
         <Receipt />

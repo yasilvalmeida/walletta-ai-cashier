@@ -11,11 +11,24 @@ interface AddPayload {
   modifiers?: Modifier[];
 }
 
+export interface ReceiptSnapshot {
+  orderId: string;
+  timestamp: string;
+  items: OrderItem[];
+  subtotal: number;
+  tax: number;
+  total: number;
+}
+
 interface CartStore {
   items: OrderItem[];
   receiptReady: boolean;
   orderId: string | null;
   orderTimestamp: string | null;
+  // Frozen snapshot of the order at checkout. Receipt reads from this
+  // single object and never recomputes, so re-renders of any parent
+  // cannot invalidate the QR. Stays null until setReceiptReady(true).
+  receiptSnapshot: ReceiptSnapshot | null;
   addItem: (payload: AddPayload) => void;
   removeItem: (product_id: string) => void;
   removeLine: (line_id: string) => void;
@@ -31,11 +44,26 @@ function generateOrderId(): string {
   return `ERW-${Date.now().toString(36).toUpperCase()}`;
 }
 
+function snapshotFromItems(items: OrderItem[]): ReceiptSnapshot {
+  const subtotal = items.reduce((sum, i) => sum + i.line_total, 0);
+  const tax = subtotal * 0.095;
+  const total = subtotal + tax;
+  return {
+    orderId: generateOrderId(),
+    timestamp: new Date().toISOString(),
+    items: items.map((i) => ({ ...i })),
+    subtotal,
+    tax,
+    total,
+  };
+}
+
 export const useCartStore = create<CartStore>((set) => ({
   items: [],
   receiptReady: false,
   orderId: null,
   orderTimestamp: null,
+  receiptSnapshot: null,
 
   addItem: (payload) =>
     set((state) => {
@@ -127,20 +155,34 @@ export const useCartStore = create<CartStore>((set) => ({
     }),
 
   clearCart: () =>
-    set({ items: [], receiptReady: false, orderId: null, orderTimestamp: null }),
+    set({
+      items: [],
+      receiptReady: false,
+      orderId: null,
+      orderTimestamp: null,
+      receiptSnapshot: null,
+    }),
 
   setReceiptReady: (ready) =>
     set((state) => {
       if (!ready) {
-        return { receiptReady: false, orderId: null, orderTimestamp: null };
+        return {
+          receiptReady: false,
+          orderId: null,
+          orderTimestamp: null,
+          receiptSnapshot: null,
+        };
       }
-      // Generate once per checkout. If somehow called twice while already
-      // ready, keep the existing id so the QR does not change.
-      if (state.receiptReady && state.orderId) return { receiptReady: true };
+      // Generate the snapshot exactly once per checkout. If the setter
+      // fires again while we already have a snapshot, return the single
+      // flag so no field identity on the snapshot changes.
+      if (state.receiptSnapshot) return { receiptReady: true };
+      const snapshot = snapshotFromItems(state.items);
       return {
         receiptReady: true,
-        orderId: generateOrderId(),
-        orderTimestamp: new Date().toISOString(),
+        orderId: snapshot.orderId,
+        orderTimestamp: snapshot.timestamp,
+        receiptSnapshot: snapshot,
       };
     }),
 }));
