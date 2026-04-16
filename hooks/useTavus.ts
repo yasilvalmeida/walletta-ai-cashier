@@ -77,12 +77,43 @@ export function useTavus(options: UseTavusOptions = {}): UseTavusReturn {
     }
   }, []);
 
+  const endSession = useCallback((conversationId: string) => {
+    // Fire-and-forget. Tavus' free tier caps concurrent conversations,
+    // so ending sessions on unmount / page-close is essential to avoid
+    // "User has reached maximum concurrent conversations" 400 errors.
+    try {
+      const body = JSON.stringify({ conversationId });
+      // sendBeacon is preferred on page unload because it survives the
+      // tab closing; fall back to fetch for programmatic disconnects.
+      if (
+        typeof navigator !== "undefined" &&
+        typeof navigator.sendBeacon === "function"
+      ) {
+        const blob = new Blob([body], { type: "application/json" });
+        const sent = navigator.sendBeacon("/api/tavus/end", blob);
+        if (sent) return;
+      }
+      void fetch("/api/tavus/end", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body,
+        keepalive: true,
+      }).catch(() => {
+        // best-effort; ignore
+      });
+    } catch {
+      // best-effort; ignore
+    }
+  }, []);
+
   const disconnect = useCallback(() => {
+    const current = sessionRef.current;
     sessionRef.current = null;
     setSession(null);
     setStatus("idle");
     setError(null);
-  }, []);
+    if (current) endSession(current.conversationId);
+  }, [endSession]);
 
   const markReady = useCallback(() => {
     setStatus((prev) => (prev === "connected" ? "ready" : prev));
@@ -99,8 +130,31 @@ export function useTavus(options: UseTavusOptions = {}): UseTavusReturn {
     return () => {
       activeRef.current = false;
       clearTimeout(timer);
+      // End the Tavus conversation when this hook unmounts (route change,
+      // page close, React fast refresh). Otherwise the session lingers on
+      // Tavus' side and counts against the concurrent-conversation cap.
+      const current = sessionRef.current;
+      if (current) {
+        sessionRef.current = null;
+        endSession(current.conversationId);
+      }
     };
-  }, [autoConnect, warmupDelayMs, connect]);
+  }, [autoConnect, warmupDelayMs, connect, endSession]);
+
+  // Extra safety net: end the session on tab close / navigation.
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const handler = () => {
+      const current = sessionRef.current;
+      if (current) endSession(current.conversationId);
+    };
+    window.addEventListener("pagehide", handler);
+    window.addEventListener("beforeunload", handler);
+    return () => {
+      window.removeEventListener("pagehide", handler);
+      window.removeEventListener("beforeunload", handler);
+    };
+  }, [endSession]);
 
   return { session, status, error, connect, disconnect, markReady };
 }
