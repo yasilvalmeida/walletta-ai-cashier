@@ -20,7 +20,26 @@ interface ChatMessage {
   content: string;
 }
 
-export function useConversation() {
+interface UseConversationOptions {
+  // True when Cartesia TTS should speak the response (fallback mode when
+  // Tavus is disabled or unavailable). When false, the Tavus avatar is
+  // the voice and Cartesia stays silent.
+  cartesiaEnabled?: boolean;
+  // True when transcripts come from Tavus's server-side STT (via the
+  // webhook/SSE bridge) instead of our Deepgram pipeline. In that mode
+  // we ignore Deepgram's onSpeechEnd so we don't double-transcribe —
+  // the avatar's audio output would get captured by our mic and re-sent
+  // to the chat, creating a feedback loop.
+  tavusTranscriptsActive?: boolean;
+}
+
+export function useConversation(options: UseConversationOptions = {}) {
+  const { cartesiaEnabled = false, tavusTranscriptsActive = false } = options;
+  const cartesiaEnabledRef = useRef(cartesiaEnabled);
+  cartesiaEnabledRef.current = cartesiaEnabled;
+  const tavusTranscriptsActiveRef = useRef(tavusTranscriptsActive);
+  tavusTranscriptsActiveRef.current = tavusTranscriptsActive;
+
   const [phase, setPhase] = useState<ConversationPhase>("idle");
   const [transcript, setTranscript] = useState("");
   const [assistantText, setAssistantText] = useState("");
@@ -36,6 +55,10 @@ export function useConversation() {
   const mediaStreamRef = useRef<MediaStream | null>(null);
   const abortRef = useRef<AbortController | null>(null);
   const streamDoneRef = useRef(false);
+  // True while draining the post-call Tavus transcript queue — in that
+  // window we MUST NOT fire Cartesia because the avatar already spoke
+  // those responses and we'd play a second voice on top of its goodbye.
+  const externalSilentRef = useRef(false);
 
   const tts = useCartesiaTTS();
   const ttsRef = useRef(tts);
@@ -84,23 +107,14 @@ export function useConversation() {
         let fullResponse = "";
         let sentenceBuffer = "";
 
-        const lower = userMessage.toLowerCase();
-        if (
-          lower.includes("checkout") ||
-          lower.includes("pay") ||
-          lower.includes("done") ||
-          lower.includes("that's all") ||
-          lower.includes("that is all")
-        ) {
-          setReceiptReady(true);
-        }
-
         await parseSSEStream(response, {
           onText: (delta) => {
             fullResponse += delta;
             setAssistantText(fullResponse);
 
-            // Stream sentences to TTS as they complete
+            // Stream sentences to Cartesia TTS only when Tavus is off.
+            // When Tavus is on the avatar speaks already; Cartesia would
+            // layer a second voice on top.
             sentenceBuffer += delta;
             const boundaryIdx = sentenceBuffer.search(/[.!?]\s/);
             if (boundaryIdx >= 0) {
@@ -108,7 +122,11 @@ export function useConversation() {
                 .slice(0, boundaryIdx + 1)
                 .trim();
               sentenceBuffer = sentenceBuffer.slice(boundaryIdx + 2);
-              if (sentence) {
+              if (
+                sentence &&
+                cartesiaEnabledRef.current &&
+                !externalSilentRef.current
+              ) {
                 ttsRef.current.enqueue(sentence);
               }
             }
@@ -144,18 +162,39 @@ export function useConversation() {
                 content: fullResponse,
               });
             }
-            // Flush remaining sentence buffer to TTS
+
             const remaining = sentenceBuffer.trim();
-            if (remaining) {
+            if (remaining && cartesiaEnabledRef.current) {
               ttsRef.current.enqueue(remaining);
-              sentenceBuffer = "";
+            }
+            sentenceBuffer = "";
+
+            // Deferred to onDone so any cart_action events from this
+            // turn have already applied to the store before we snapshot
+            // the receipt. Without this, saying "latte, that's all" in
+            // a single utterance would freeze the cart at its
+            // pre-utterance state (empty for post-call queue runs).
+            const lower = userMessage.toLowerCase();
+            if (
+              lower.includes("checkout") ||
+              lower.includes("pay") ||
+              lower.includes("that's all") ||
+              lower.includes("that is all") ||
+              lower === "done" ||
+              lower.endsWith(" done") ||
+              lower.startsWith("i'm done") ||
+              lower.startsWith("i am done")
+            ) {
+              setReceiptReady(true);
             }
 
-            if (fullResponse.trim()) {
-              // TTS was enqueued — useEffect handles phase transition
+            if (cartesiaEnabledRef.current && fullResponse.trim()) {
+              // Cartesia queued — useEffect below waits for TTS idle
+              // before flipping the phase back to listening.
               streamDoneRef.current = true;
               setStreamDoneSignal((s) => s + 1);
             } else {
+              // Tavus mode (or empty response) — transition immediately.
               setPhase("listening");
             }
           },
@@ -167,10 +206,24 @@ export function useConversation() {
         });
       } catch (err) {
         if (err instanceof DOMException && err.name === "AbortError") return;
+        // Safari surfaces many transient network failures as "Load failed"
+        // (TypeError). These are usually recoverable — the chat round-trip
+        // can hang briefly while the iPad is talking to ngrok / when the
+        // Deepgram WS + Tavus WebRTC + /api/chat SSE all share bandwidth.
+        // We log it and fall back to "listening" instead of a scary red
+        // banner so the user can just retry by speaking again.
         const msg = err instanceof Error ? err.message : "Chat request failed";
+        const isTransient =
+          msg === "Load failed" ||
+          msg === "Failed to fetch" ||
+          (err instanceof TypeError && /fetch|network/i.test(msg));
         console.error("[Chat] Error:", msg);
-        setError(msg);
-        setPhase("error");
+        if (isTransient) {
+          setPhase("listening");
+        } else {
+          setError(msg);
+          setPhase("error");
+        }
       }
     },
     [addItem, removeItem, setReceiptReady]
@@ -214,6 +267,15 @@ export function useConversation() {
         }
       },
       onSpeechEnd: (fullTranscript: string) => {
+        // When Tavus is feeding transcripts via its own STT, skip our
+        // Deepgram end-of-speech handler so we don't double-send (or
+        // worse, send the avatar's echo back into the chat).
+        if (tavusTranscriptsActiveRef.current) return;
+        // Also skip while we're draining the post-call Tavus transcript
+        // queue. Otherwise Deepgram's sendToChat would race and abort
+        // the external queue's fetch mid-stream (seen as "Fetch is
+        // aborted" in the console).
+        if (externalSilentRef.current) return;
         const s = ttsRef.current.status;
         if (s === "speaking" || s === "loading") return;
         if (fullTranscript.trim()) {
@@ -287,6 +349,42 @@ export function useConversation() {
     setTranscript("");
   }, [vad, deepgram]);
 
+  // External entry point used by useTavusTranscripts to inject user
+  // utterances that came from Tavus's server-side STT (via webhook +
+  // SSE) instead of our Deepgram pipeline. Transcripts are queued and
+  // sent to /api/chat strictly in order — sendToChat aborts any prior
+  // fetch on entry, so running them in parallel would throw away every
+  // turn except the last, which would leave the cart nearly empty.
+  const externalQueueRef = useRef<string[]>([]);
+  const externalProcessingRef = useRef(false);
+  const processExternalQueue = useCallback(async () => {
+    if (externalProcessingRef.current) return;
+    externalProcessingRef.current = true;
+    externalSilentRef.current = true;
+    try {
+      while (externalQueueRef.current.length > 0) {
+        const next = externalQueueRef.current.shift();
+        if (!next) continue;
+        console.log("[Conversation] External transcript:", next);
+        setTranscript("");
+        await sendToChatRef.current(next);
+      }
+    } finally {
+      externalSilentRef.current = false;
+      externalProcessingRef.current = false;
+    }
+  }, []);
+
+  const sendExternalTranscript = useCallback(
+    (text: string) => {
+      const trimmed = text.trim();
+      if (!trimmed) return;
+      externalQueueRef.current.push(trimmed);
+      void processExternalQueue();
+    },
+    [processExternalQueue]
+  );
+
   return {
     phase,
     transcript,
@@ -300,5 +398,6 @@ export function useConversation() {
     ttsStatus: tts.status,
     start,
     stop,
+    sendExternalTranscript,
   };
 }

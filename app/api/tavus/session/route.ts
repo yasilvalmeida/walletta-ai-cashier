@@ -2,6 +2,13 @@ import { NextResponse } from "next/server";
 
 const TAVUS_API = "https://tavusapi.com/v2/conversations";
 const DEFAULT_REPLICA_ID = "r5f0577fc829";
+// Erewhon Cashier persona (no tools). Tavus delivers the full
+// conversation transcript at session end via
+// application.transcription_ready — we parse each user turn out of
+// that and replay it through /api/chat to populate the cart. The
+// tool-enabled variant (p8320500b2f2) seems to suppress user turns
+// in the final transcript, so we stay on this one.
+const DEFAULT_PERSONA_ID = "pe2d1f72ee4b";
 
 const CONVERSATIONAL_CONTEXT = `You are Jordan, the Erewhon Market cashier AI. Warm, premium, and efficient. Help customers order smoothies, coffee & tonics, and pastries. Ask for cup sizes on coffee drinks, offer milk/shot/syrup modifiers, and pair a pastry with coffee orders when appropriate. Keep responses to two sentences max. Confirm each item as you add it.`;
 
@@ -13,16 +20,32 @@ interface TavusSessionResponse {
 interface TavusConversationRequest {
   replica_id: string;
   conversation_name: string;
-  conversational_context: string;
+  conversational_context?: string;
   persona_id?: string;
+  callback_url?: string;
   properties: {
     max_call_duration: number;
     participant_left_timeout: number;
     enable_recording: boolean;
+    enable_closed_captions?: boolean;
   };
 }
 
-export async function POST() {
+function resolveBaseUrl(request: Request): string {
+  const explicit = process.env.TAVUS_CALLBACK_BASE_URL;
+  if (explicit) return explicit.replace(/\/+$/, "");
+  const proto =
+    request.headers.get("x-forwarded-proto") ??
+    (request.url.startsWith("https://") ? "https" : "http");
+  const host =
+    request.headers.get("x-forwarded-host") ??
+    request.headers.get("host") ??
+    "";
+  if (!host) return "";
+  return `${proto}://${host}`.replace(/\/+$/, "");
+}
+
+export async function POST(request: Request) {
   try {
     const apiKey = process.env.TAVUS_API_KEY;
 
@@ -34,12 +57,17 @@ export async function POST() {
     }
 
     const replicaId = process.env.TAVUS_REPLICA_ID ?? DEFAULT_REPLICA_ID;
-    const personaId = process.env.TAVUS_PERSONA_ID;
+    const personaId = process.env.TAVUS_PERSONA_ID ?? DEFAULT_PERSONA_ID;
+    const baseUrl = resolveBaseUrl(request);
+    const callbackUrl = baseUrl ? `${baseUrl}/api/tavus/webhook` : undefined;
 
     const payload: TavusConversationRequest = {
       replica_id: replicaId,
       conversation_name: "Walletta Cashier Demo",
-      conversational_context: CONVERSATIONAL_CONTEXT,
+      // Intentionally omit conversational_context — the Erewhon persona
+      // we created already carries the full cashier system prompt. Pass
+      // both and the replica drifts off-script (asks about "area and
+      // location" etc) because the two prompts compete.
       properties: {
         max_call_duration: 1800,
         participant_left_timeout: 60,
@@ -49,6 +77,10 @@ export async function POST() {
 
     if (personaId) {
       payload.persona_id = personaId;
+    }
+    if (callbackUrl) {
+      payload.callback_url = callbackUrl;
+      console.log("[Tavus] callback_url:", callbackUrl);
     }
 
     const response = await fetch(TAVUS_API, {
