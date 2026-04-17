@@ -3,6 +3,12 @@ import { publishEvent, clearConversation } from "@/lib/tavusEvents";
 import { getAllProducts } from "@/lib/catalog";
 import type { Modifier, Product } from "@/lib/schemas";
 
+// Node.js runtime so this endpoint shares memory with the SSE route's
+// pub/sub (lib/tavusEvents). Edge functions are stateless per
+// invocation and would silently drop every tool-call event.
+export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
+
 interface TavusEventBody {
   event_type?: string;
   message_type?: string;

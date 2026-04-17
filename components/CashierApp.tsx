@@ -132,15 +132,19 @@ export function CashierApp() {
     },
   });
 
-  // When the receipt is ready, end the Tavus call. The user has just
-  // finished ordering — leaving the avatar running behind the modal
-  // wastes a concurrent-conversation slot and makes the checkout screen
-  // feel like the avatar is about to speak again.
+  // When the receipt slides up, end the Tavus call AFTER a short delay
+  // so the avatar's closing "your receipt is up, thanks" can finish —
+  // disconnecting the instant the snapshot lands would clip the goodbye
+  // mid-word. 2 s covers a short one-sentence close, which is all the
+  // persona prompt allows. The persona is also instructed to stay silent
+  // after finalize_order, so this delay is a UX cushion, not a conversation
+  // continuation.
   const receiptSnapshot = useCartStore((s) => s.receiptSnapshot);
   useEffect(() => {
     if (!receiptSnapshot) return;
     if (tavus.status === "idle" || tavus.status === "error") return;
-    tavus.disconnect();
+    const timer = setTimeout(() => tavus.disconnect(), 2000);
+    return () => clearTimeout(timer);
   }, [receiptSnapshot, tavus]);
   const overlayStatus = getOverlayStatus(
     conversation.phase,
