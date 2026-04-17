@@ -1,28 +1,43 @@
-// In-memory pub/sub keyed by Tavus conversation id. The webhook pushes
-// events in; the SSE endpoint reads them out and streams to the client.
-//
-// Caveat: this only works when a single Node process owns the state
-// (ngrok/local dev, or a single long-running server). On Vercel's
-// serverless functions each invocation is a fresh instance and this
-// pub/sub breaks — prod needs Vercel KV / Upstash Redis. Out of scope
-// for the current demo.
+import type { Modifier } from "@/lib/schemas";
 
-export interface TavusTranscriptEvent {
-  conversationId: string;
-  role: "user" | "replica" | "system";
-  speech: string;
-  timestamp: number;
-}
+// Discriminated union of everything the client SSE stream can carry.
+// Transcripts are still published for diagnostics; the primary cart
+// signal is now cart_action / finalize (driven by Tavus tool calls).
+export type TavusChannelEvent =
+  | {
+      kind: "transcript";
+      conversationId: string;
+      role: "user" | "replica" | "system";
+      speech: string;
+      timestamp: number;
+    }
+  | {
+      kind: "cart_action";
+      conversationId: string;
+      action: "add" | "remove";
+      payload: {
+        product_id: string;
+        product_name: string;
+        quantity: number;
+        unit_price: number;
+        size?: string;
+        modifiers?: Modifier[];
+      };
+      timestamp: number;
+    }
+  | {
+      kind: "finalize";
+      conversationId: string;
+      timestamp: number;
+    };
 
-type Listener = (event: TavusTranscriptEvent) => void;
+type Listener = (event: TavusChannelEvent) => void;
 
 const listeners = new Map<string, Set<Listener>>();
-// Keep the last ~50 events per conversation so a late SSE subscriber can
-// replay anything it missed between session creation and connect.
-const backlog = new Map<string, TavusTranscriptEvent[]>();
+const backlog = new Map<string, TavusChannelEvent[]>();
 const BACKLOG_LIMIT = 50;
 
-export function publishTranscript(event: TavusTranscriptEvent): void {
+export function publishEvent(event: TavusChannelEvent): void {
   const bucket = backlog.get(event.conversationId) ?? [];
   bucket.push(event);
   while (bucket.length > BACKLOG_LIMIT) bucket.shift();
@@ -30,10 +45,9 @@ export function publishTranscript(event: TavusTranscriptEvent): void {
 
   const set = listeners.get(event.conversationId);
   console.log(
-    "[tavusEvents] publish",
+    "[tavusEvents]",
+    event.kind,
     event.conversationId,
-    event.role,
-    `"${event.speech.slice(0, 60)}"`,
     `listeners=${set?.size ?? 0}`
   );
   if (!set) return;
@@ -57,7 +71,6 @@ export function subscribe(
   }
   set.add(listener);
 
-  // Replay backlog so late subscribers don't miss early utterances.
   const history = backlog.get(conversationId);
   if (history) {
     for (const event of history) {
