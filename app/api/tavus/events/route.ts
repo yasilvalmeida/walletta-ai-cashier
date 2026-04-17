@@ -31,7 +31,7 @@ export async function GET(request: Request) {
         console.log(
           "[tavusEvents] SSE deliver",
           event.conversationId,
-          event.role
+          event.kind
         );
         const payload = JSON.stringify(event);
         write(`data: ${payload}\n\n`);

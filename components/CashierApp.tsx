@@ -101,9 +101,35 @@ export function CashierApp() {
     return () => clearTimeout(timer);
   }, [tavus.session?.conversationId, trailingConversationId]);
 
+  // Tool-call driven cart updates — the primary mechanism now that the
+  // Tavus persona has add_to_cart / remove_from_cart / finalize_order
+  // tools. onUserTranscript is intentionally NOT wired: we'd otherwise
+  // run the same user turn through /api/chat as well, which would
+  // double-add every item the avatar already tool-called for.
+  const removeLine = useCartStore((s) => s.removeLine);
   useTavusTranscripts({
     conversationId: trailingConversationId,
-    onUserTranscript: conversation.sendExternalTranscript,
+    onCartAction: (action, payload) => {
+      if (action === "add") {
+        addItem(payload);
+      } else {
+        // Tavus gave us a product_id — remove the first matching line
+        // so the cart UI stays in sync with the avatar's confirmation.
+        const items = useCartStore.getState().items;
+        const target = items.find((i) => i.product_id === payload.product_id);
+        if (target) {
+          const lineKeyOf = (i: typeof target) =>
+            `${i.product_id}::${i.size ?? ""}::${(i.modifiers ?? [])
+              .map((m) => m.label)
+              .sort()
+              .join("|")}`;
+          removeLine(lineKeyOf(target));
+        }
+      }
+    },
+    onFinalize: () => {
+      setReceiptReady(true);
+    },
   });
 
   // When the receipt is ready, end the Tavus call. The user has just

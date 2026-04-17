@@ -1,17 +1,13 @@
 import { NextResponse } from "next/server";
-import {
-  publishTranscript,
-  clearConversation,
-} from "@/lib/tavusEvents";
+import { publishEvent, clearConversation } from "@/lib/tavusEvents";
+import { getAllProducts } from "@/lib/catalog";
+import type { Modifier, Product } from "@/lib/schemas";
 
-// Tavus's event payloads vary by event_type; this handler is permissive
-// and pulls transcript text + role from the shapes seen in practice.
 interface TavusEventBody {
   event_type?: string;
   message_type?: string;
   conversation_id?: string;
   properties?: Record<string, unknown>;
-  transcript?: unknown;
 }
 
 function readString(obj: unknown, key: string): string | undefined {
@@ -20,12 +16,85 @@ function readString(obj: unknown, key: string): string | undefined {
   return typeof v === "string" ? v : undefined;
 }
 
+function resolveProduct(
+  name: string,
+  sizeLabel?: string,
+  modifierLabels?: string[]
+): {
+  product: Product;
+  unit_price: number;
+  size?: string;
+  modifiers?: Modifier[];
+} | null {
+  const lower = name.toLowerCase().trim();
+  if (!lower) return null;
+  const products = getAllProducts();
+  const candidates = [
+    (p: Product) => p.name.toLowerCase() === lower,
+    (p: Product) => p.display_name.toLowerCase() === lower,
+    (p: Product) =>
+      p.name.toLowerCase().includes(lower) ||
+      lower.includes(p.name.toLowerCase()),
+    (p: Product) =>
+      p.search_keywords.some((kw) => kw.toLowerCase() === lower),
+  ];
+  let product: Product | undefined;
+  for (const pred of candidates) {
+    product = products.find(pred);
+    if (product) break;
+  }
+  if (!product) return null;
+
+  let unit_price = product.price;
+  let size: string | undefined;
+  if (sizeLabel && product.sizes) {
+    const s = product.sizes.find(
+      (x) => x.label.toLowerCase() === sizeLabel.toLowerCase()
+    );
+    if (s) {
+      unit_price += s.price_delta;
+      size = s.label;
+    }
+  }
+
+  let modifiers: Modifier[] | undefined;
+  if (modifierLabels && modifierLabels.length > 0) {
+    const found: Modifier[] = [];
+    for (const label of modifierLabels) {
+      const c = product.customizations.find(
+        (x) => x.label.toLowerCase() === label.toLowerCase()
+      );
+      if (c) found.push({ label: c.label, price: c.price });
+    }
+    if (found.length > 0) modifiers = found;
+  }
+
+  return { product, unit_price, size, modifiers };
+}
+
+function parseToolArgs(raw: unknown): Record<string, unknown> {
+  if (typeof raw === "string") {
+    try {
+      return JSON.parse(raw) as Record<string, unknown>;
+    } catch {
+      return {};
+    }
+  }
+  if (raw && typeof raw === "object") {
+    return raw as Record<string, unknown>;
+  }
+  return {};
+}
+
 export async function POST(request: Request) {
   let body: TavusEventBody;
   try {
     body = (await request.json()) as TavusEventBody;
   } catch {
-    return NextResponse.json({ ok: false, error: "invalid json" }, { status: 400 });
+    return NextResponse.json(
+      { ok: false, error: "invalid json" },
+      { status: 400 }
+    );
   }
 
   const conversationId = body.conversation_id;
@@ -35,36 +104,95 @@ export async function POST(request: Request) {
 
   const eventType = body.event_type ?? body.message_type ?? "";
   console.log("[Tavus webhook] event:", eventType, conversationId);
-  // For transcription_ready the body can be >10KB because of the system
-  // prompt — log just the turn roles + short previews so we can see
-  // what the extractor will work with.
-  if (eventType === "application.transcription_ready") {
-    const t = (body.properties as Record<string, unknown> | undefined)
-      ?.transcript;
-    if (Array.isArray(t)) {
-      console.log("[Tavus webhook] transcript turns:", t.length);
-      t.forEach((turn, i) => {
-        if (turn && typeof turn === "object") {
-          const rec = turn as Record<string, unknown>;
-          const role = typeof rec.role === "string" ? rec.role : "?";
-          const content = typeof rec.content === "string" ? rec.content : "";
-          console.log(
-            `[Tavus webhook]   [${i}] ${role}: ${content.slice(0, 120).replace(/\n/g, " ")}`
-          );
-        }
+
+  // PRIMARY SIGNAL — tool calls from the persona's LLM. This is how the
+  // avatar's cart updates reach the client in real time.
+  if (
+    eventType === "conversation.tool_call" ||
+    eventType === "conversation.toolcall"
+  ) {
+    const props = body.properties ?? {};
+    const rec = props as Record<string, unknown>;
+    const toolName =
+      readString(rec, "tool_name") ??
+      readString(rec, "name") ??
+      readString(rec, "function_name") ??
+      "";
+    const args = parseToolArgs(
+      rec.arguments ?? rec.args ?? rec.parameters
+    );
+    console.log("[Tavus webhook] tool_call:", toolName, JSON.stringify(args));
+
+    if (toolName === "finalize_order") {
+      publishEvent({
+        kind: "finalize",
+        conversationId,
+        timestamp: Date.now(),
       });
+    } else if (toolName === "add_to_cart") {
+      const productName =
+        typeof args.product_name === "string" ? args.product_name : "";
+      const quantity =
+        typeof args.quantity === "number" && args.quantity > 0
+          ? Math.floor(args.quantity)
+          : 1;
+      const sizeLabel =
+        typeof args.size === "string" ? args.size : undefined;
+      const modifierLabels = Array.isArray(args.modifiers)
+        ? args.modifiers.filter((x): x is string => typeof x === "string")
+        : undefined;
+      const resolved = resolveProduct(productName, sizeLabel, modifierLabels);
+      if (resolved) {
+        publishEvent({
+          kind: "cart_action",
+          conversationId,
+          action: "add",
+          payload: {
+            product_id: resolved.product.id,
+            product_name:
+              resolved.product.display_name || resolved.product.name,
+            quantity,
+            unit_price: resolved.unit_price,
+            size: resolved.size,
+            modifiers: resolved.modifiers,
+          },
+          timestamp: Date.now(),
+        });
+      } else {
+        console.warn(
+          "[Tavus webhook] add_to_cart: could not resolve product",
+          productName
+        );
+      }
+    } else if (toolName === "remove_from_cart") {
+      const productName =
+        typeof args.product_name === "string" ? args.product_name : "";
+      const resolved = resolveProduct(productName);
+      if (resolved) {
+        publishEvent({
+          kind: "cart_action",
+          conversationId,
+          action: "remove",
+          payload: {
+            product_id: resolved.product.id,
+            product_name:
+              resolved.product.display_name || resolved.product.name,
+            quantity: 0,
+            unit_price: 0,
+          },
+          timestamp: Date.now(),
+        });
+      }
     }
   }
 
-  // Utterance event — the main thing we care about. Tavus sends these for
-  // both user and replica turns with the text and role.
-  // Real-time per-turn event (only fires when a persona is attached).
-  const isUtterance =
+  // Secondary — live user transcripts (for diagnostic/fallback; primary
+  // cart signal is tool_call above).
+  if (
     eventType === "conversation.utterance" ||
     eventType === "conversation.utterance_streaming" ||
-    eventType.startsWith("conversation.utterance");
-
-  if (isUtterance) {
+    eventType.startsWith("conversation.utterance")
+  ) {
     const props = body.properties ?? {};
     const role = (readString(props, "role") ??
       readString(props, "speaker") ??
@@ -74,9 +202,9 @@ export async function POST(request: Request) {
       readString(props, "transcript") ??
       readString(props, "text") ??
       "";
-
     if (speech.trim()) {
-      publishTranscript({
+      publishEvent({
+        kind: "transcript",
         conversationId,
         role: role === "replica" || role === "system" ? role : "user",
         speech: speech.trim(),
@@ -85,33 +213,7 @@ export async function POST(request: Request) {
     }
   }
 
-  // Post-call fallback: if real-time events never came through (older
-  // sessions without a persona, or if Tavus drops events), the full
-  // transcript arrives here. Fan each user turn out through the same
-  // pub/sub so the client can replay them into /api/chat. The client-
-  // side dedupe (line keys) prevents double-adding when both real-time
-  // and post-call paths succeed.
-  if (eventType === "application.transcription_ready") {
-    const props = body.properties ?? {};
-    const transcript = (props as Record<string, unknown>).transcript;
-    if (Array.isArray(transcript)) {
-      for (const turn of transcript) {
-        if (!turn || typeof turn !== "object") continue;
-        const rec = turn as Record<string, unknown>;
-        const role = typeof rec.role === "string" ? rec.role : "";
-        const content = typeof rec.content === "string" ? rec.content : "";
-        if (role !== "user" || !content.trim()) continue;
-        publishTranscript({
-          conversationId,
-          role: "user",
-          speech: content.trim(),
-          timestamp: Date.now(),
-        });
-      }
-    }
-  }
-
-  // Cleanup when Tavus says the conversation is over.
+  // Post-call cleanup
   if (
     eventType.includes("shutdown") ||
     eventType.includes("ended") ||
