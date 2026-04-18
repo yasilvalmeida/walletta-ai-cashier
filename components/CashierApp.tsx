@@ -101,50 +101,20 @@ export function CashierApp() {
     return () => clearTimeout(timer);
   }, [tavus.session?.conversationId, trailingConversationId]);
 
-  // Tool-call driven cart updates — the primary mechanism now that the
-  // Tavus persona has add_to_cart / remove_from_cart / finalize_order
-  // tools. onUserTranscript is intentionally NOT wired: we'd otherwise
-  // run the same user turn through /api/chat as well, which would
-  // double-add every item the avatar already tool-called for.
-  const removeLine = useCartStore((s) => s.removeLine);
   useTavusTranscripts({
     conversationId: trailingConversationId,
-    onCartAction: (action, payload) => {
-      if (action === "add") {
-        addItem(payload);
-      } else {
-        // Tavus gave us a product_id — remove the first matching line
-        // so the cart UI stays in sync with the avatar's confirmation.
-        const items = useCartStore.getState().items;
-        const target = items.find((i) => i.product_id === payload.product_id);
-        if (target) {
-          const lineKeyOf = (i: typeof target) =>
-            `${i.product_id}::${i.size ?? ""}::${(i.modifiers ?? [])
-              .map((m) => m.label)
-              .sort()
-              .join("|")}`;
-          removeLine(lineKeyOf(target));
-        }
-      }
-    },
-    onFinalize: () => {
-      setReceiptReady(true);
-    },
+    onUserTranscript: conversation.sendExternalTranscript,
   });
 
-  // When the receipt slides up, end the Tavus call AFTER a short delay
-  // so the avatar's closing "your receipt is up, thanks" can finish —
-  // disconnecting the instant the snapshot lands would clip the goodbye
-  // mid-word. 2 s covers a short one-sentence close, which is all the
-  // persona prompt allows. The persona is also instructed to stay silent
-  // after finalize_order, so this delay is a UX cushion, not a conversation
-  // continuation.
+  // When the receipt is ready, end the Tavus call. The user has just
+  // finished ordering — leaving the avatar running behind the modal
+  // wastes a concurrent-conversation slot and makes the checkout screen
+  // feel like the avatar is about to speak again.
   const receiptSnapshot = useCartStore((s) => s.receiptSnapshot);
   useEffect(() => {
     if (!receiptSnapshot) return;
     if (tavus.status === "idle" || tavus.status === "error") return;
-    const timer = setTimeout(() => tavus.disconnect(), 2000);
-    return () => clearTimeout(timer);
+    tavus.disconnect();
   }, [receiptSnapshot, tavus]);
   const overlayStatus = getOverlayStatus(
     conversation.phase,

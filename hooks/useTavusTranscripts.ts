@@ -1,67 +1,32 @@
 "use client";
 
 import { useEffect, useRef } from "react";
-import type { Modifier } from "@/lib/schemas";
 
-export interface TavusCartActionPayload {
-  product_id: string;
-  product_name: string;
-  quantity: number;
-  unit_price: number;
-  size?: string;
-  modifiers?: Modifier[];
+interface TavusTranscriptEvent {
+  conversationId: string;
+  role: "user" | "replica" | "system";
+  speech: string;
+  timestamp: number;
 }
-
-type TavusChannelEvent =
-  | {
-      kind: "transcript";
-      conversationId: string;
-      role: "user" | "replica" | "system";
-      speech: string;
-      timestamp: number;
-    }
-  | {
-      kind: "cart_action";
-      conversationId: string;
-      action: "add" | "remove";
-      payload: TavusCartActionPayload;
-      timestamp: number;
-    }
-  | {
-      kind: "finalize";
-      conversationId: string;
-      timestamp: number;
-    };
 
 interface UseTavusTranscriptsArgs {
   conversationId: string | null;
-  onUserTranscript?: (speech: string) => void;
-  onCartAction?: (
-    action: "add" | "remove",
-    payload: TavusCartActionPayload
-  ) => void;
-  onFinalize?: () => void;
+  // Fires for each user-side transcript. Keep the handler stable (ref
+  // or useCallback) because a new identity will tear down and re-open
+  // the EventSource.
+  onUserTranscript: (speech: string) => void;
 }
 
-// Streams Tavus events over SSE from /api/tavus/events. Three kinds of
-// events flow through one channel:
-//  - transcript  — diagnostic / fallback; user-side speech
-//  - cart_action — avatar called add_to_cart or remove_from_cart
-//  - finalize    — avatar called finalize_order (customer is done)
-// Callbacks are kept in refs so a parent can pass inline handlers
-// without thrashing the EventSource subscription.
+// Streams transcript events from our /api/tavus/events SSE endpoint,
+// which is fed by Tavus webhook callbacks on conversation.utterance.
+// Only fires onUserTranscript for the customer side — replica turns
+// are dropped so we don't echo the avatar into our own chat pipeline.
 export function useTavusTranscripts({
   conversationId,
   onUserTranscript,
-  onCartAction,
-  onFinalize,
 }: UseTavusTranscriptsArgs): void {
-  const transcriptRef = useRef(onUserTranscript);
-  const cartActionRef = useRef(onCartAction);
-  const finalizeRef = useRef(onFinalize);
-  transcriptRef.current = onUserTranscript;
-  cartActionRef.current = onCartAction;
-  finalizeRef.current = onFinalize;
+  const handlerRef = useRef(onUserTranscript);
+  handlerRef.current = onUserTranscript;
 
   useEffect(() => {
     if (!conversationId) return;
@@ -74,21 +39,10 @@ export function useTavusTranscripts({
 
     source.onmessage = (evt) => {
       try {
-        const data = JSON.parse(evt.data) as TavusChannelEvent;
-        if (data.kind === "transcript") {
-          if (data.role !== "user") return;
-          if (!data.speech.trim()) return;
-          transcriptRef.current?.(data.speech);
-          return;
-        }
-        if (data.kind === "cart_action") {
-          cartActionRef.current?.(data.action, data.payload);
-          return;
-        }
-        if (data.kind === "finalize") {
-          finalizeRef.current?.();
-          return;
-        }
+        const data = JSON.parse(evt.data) as TavusTranscriptEvent;
+        if (data.role !== "user") return;
+        if (!data.speech.trim()) return;
+        handlerRef.current(data.speech);
       } catch (err) {
         console.warn("[TavusTranscripts] bad event:", err);
       }

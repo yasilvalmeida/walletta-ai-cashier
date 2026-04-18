@@ -112,29 +112,22 @@ export function useConversation(options: UseConversationOptions = {}) {
             fullResponse += delta;
             setAssistantText(fullResponse);
 
-            // Stream clauses to Cartesia TTS only when Tavus is off.
+            // Stream sentences to Cartesia TTS only when Tavus is off.
             // When Tavus is on the avatar speaks already; Cartesia would
             // layer a second voice on top.
-            //
-            // Clause-level boundary (. ! ? ; , —) instead of sentence-
-            // only so the first audio chunk fires on the FIRST natural
-            // pause, not the first full stop. Reduces perceived LLM→TTS
-            // latency noticeably on multi-clause responses. We still
-            // require a min-length of 18 chars so we don't produce
-            // chunks like "Got," or "Sure,".
             sentenceBuffer += delta;
-            const boundaryIdx = sentenceBuffer.search(/[.!?;,]\s/);
-            if (boundaryIdx >= 18) {
-              const chunk = sentenceBuffer
+            const boundaryIdx = sentenceBuffer.search(/[.!?]\s/);
+            if (boundaryIdx >= 0) {
+              const sentence = sentenceBuffer
                 .slice(0, boundaryIdx + 1)
                 .trim();
               sentenceBuffer = sentenceBuffer.slice(boundaryIdx + 2);
               if (
-                chunk &&
+                sentence &&
                 cartesiaEnabledRef.current &&
                 !externalSilentRef.current
               ) {
-                ttsRef.current.enqueue(chunk);
+                ttsRef.current.enqueue(sentence);
               }
             }
           },

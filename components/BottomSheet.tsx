@@ -29,9 +29,7 @@ export function BottomSheet() {
 
   if (receiptSnapshot) {
     return (
-      <div className="absolute inset-0 z-30 bg-black/60 backdrop-blur-sm">
-        {/* Receipt slides up from the bottom edge — no flex wrapper so
-            the motion.div's absolute bottom-0 anchors to the viewport. */}
+      <div className="absolute inset-0 z-30 flex items-center justify-center bg-black/60 backdrop-blur-sm">
         <Receipt />
       </div>
     );
