@@ -1,10 +1,22 @@
 import { subscribe } from "@/lib/tavusEvents";
 
+// Force Node.js runtime (not edge) — our in-memory pub/sub in
+// lib/tavusEvents.ts only works when the webhook and the SSE route
+// share a process. Edge functions are stateless per invocation.
+// Also disable caching so the stream is always fresh.
+export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
+// Keep the SSE open for up to 5 minutes per connection. EventSource
+// auto-reconnects if Vercel drops the function, and the backlog in
+// lib/tavusEvents replays missed events to the new subscription.
+export const maxDuration = 300;
+
 // GET /api/tavus/events?conversationId=<id>
-// Server-Sent Events stream of Tavus transcript events for one
-// conversation. The client opens an EventSource, we publish-through
-// whatever the webhook receives, and we keep the connection alive
-// with a comment ping every 15 s so intermediaries don't close it.
+// Server-Sent Events stream of Tavus transcript + cart_action + finalize
+// events for one conversation. The client opens an EventSource, we
+// publish-through whatever the webhook receives, and we keep the
+// connection alive with a comment ping every 15 s so intermediaries
+// don't close it.
 export async function GET(request: Request) {
   const url = new URL(request.url);
   const conversationId = url.searchParams.get("conversationId");
@@ -31,7 +43,7 @@ export async function GET(request: Request) {
         console.log(
           "[tavusEvents] SSE deliver",
           event.conversationId,
-          event.role
+          event.kind
         );
         const payload = JSON.stringify(event);
         write(`data: ${payload}\n\n`);
