@@ -8,7 +8,6 @@ import { AvatarOverlay } from "@/components/avatar/AvatarOverlay";
 import { TavusStage } from "@/components/avatar/TavusStage";
 import { MicButton } from "@/components/ui/MicButton";
 import { BottomSheet } from "@/components/BottomSheet";
-import { DebugEventOverlay } from "@/components/DebugEventOverlay";
 import { getOverlayStatus } from "@/lib/overlay";
 import { useCartStore } from "@/store/cartStore";
 
@@ -17,17 +16,6 @@ export function CashierApp() {
     if (typeof window === "undefined") return true;
     const params = new URLSearchParams(window.location.search);
     return params.get("tavus") !== "off";
-  }, []);
-
-  // ?debug=events renders a small fixed overlay at top-right showing
-  // the SSE connection state and every event that arrives from Tavus.
-  // Shipped as a diagnostic because Vercel function logs are opaque
-  // from the iPad; this lets Temur confirm in 10 seconds whether
-  // tool_call events actually cross the network.
-  const debugEvents = useMemo(() => {
-    if (typeof window === "undefined") return false;
-    const params = new URLSearchParams(window.location.search);
-    return params.get("debug") === "events";
   }, []);
 
   // ?debug=receipt pre-populates the cart and opens the receipt modal so
@@ -348,11 +336,6 @@ export function CashierApp() {
       {/* BottomSheet overlays everything above (z-30 for receipt, z-10 for
           the cart drawer). Rendered last so it wins the z-stack. */}
       <BottomSheet />
-
-      <DebugEventOverlay
-        conversationId={trailingConversationId}
-        enabled={debugEvents}
-      />
     </div>
   );
 }
