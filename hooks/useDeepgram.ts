@@ -99,6 +99,42 @@ export function useDeepgram(options: UseDeepgramOptions) {
       wsUrl.searchParams.set("encoding", "linear16");
       wsUrl.searchParams.set("sample_rate", "16000");
       wsUrl.searchParams.set("channels", "1");
+      // Keyword boosting so the STT doesn't mangle brand / catalog
+      // names ("Malibu" → "Maripo", "Erewhon" → "Ere one", etc). Each
+      // keyword gets a ~2x weight boost in the recognizer's lexicon.
+      const KEYWORDS = [
+        "Malibu Mango",
+        "Coconut Cloud",
+        "Strawberry Glaze",
+        "Gisele",
+        "Kourtney",
+        "Peanut Butter Blast",
+        "Turmeric Crush",
+        "Hemp Heavy",
+        "Superberry Probiotic",
+        "Chocolate Bliss",
+        "Blue Velvet",
+        "Mint Chip Energy",
+        "Rockstar",
+        "Avocado Greens",
+        "Oat Milk Latte",
+        "Americano",
+        "Matcha",
+        "Chai",
+        "Tonic",
+        "Butter Croissant",
+        "Almond Croissant",
+        "Blueberry Muffin",
+        "Banana Muffin",
+        "Morning Bun",
+        "Scone",
+        "Erewhon",
+        "Winnie Harlow",
+        "Hailey Bieber",
+      ];
+      for (const kw of KEYWORDS) {
+        wsUrl.searchParams.append("keywords", `${kw}:5`);
+      }
 
       const ws = new WebSocket(wsUrl.toString(), ["token", key]);
 

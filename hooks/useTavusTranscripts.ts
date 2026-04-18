@@ -1,59 +1,108 @@
 "use client";
 
 import { useEffect, useRef } from "react";
+import type { Modifier } from "@/lib/schemas";
 
-interface TavusTranscriptEvent {
-  conversationId: string;
-  role: "user" | "replica" | "system";
-  speech: string;
-  timestamp: number;
+export interface TavusCartActionPayload {
+  product_id: string;
+  product_name: string;
+  quantity: number;
+  unit_price: number;
+  size?: string;
+  modifiers?: Modifier[];
 }
+
+type TavusChannelEvent =
+  | {
+      kind: "transcript";
+      conversationId: string;
+      role: "user" | "replica" | "system";
+      speech: string;
+      timestamp: number;
+    }
+  | {
+      kind: "cart_action";
+      conversationId: string;
+      action: "add" | "remove";
+      payload: TavusCartActionPayload;
+      timestamp: number;
+    }
+  | {
+      kind: "finalize";
+      conversationId: string;
+      timestamp: number;
+    };
 
 interface UseTavusTranscriptsArgs {
-  conversationId: string | null;
-  // Fires for each user-side transcript. Keep the handler stable (ref
-  // or useCallback) because a new identity will tear down and re-open
-  // the EventSource.
-  onUserTranscript: (speech: string) => void;
+  // Array of active conversation ids to subscribe to. Usually 1-2:
+  // the live conversation + the previous one still in its post-call
+  // transcript grace window. Managing both in a single hook invocation
+  // avoids the close/reopen gap a pair of hook calls would create.
+  conversationIds: string[];
+  onUserTranscript?: (speech: string) => void;
+  onCartAction?: (
+    action: "add" | "remove",
+    payload: TavusCartActionPayload
+  ) => void;
+  onFinalize?: () => void;
 }
 
-// Streams transcript events from our /api/tavus/events SSE endpoint,
-// which is fed by Tavus webhook callbacks on conversation.utterance.
-// Only fires onUserTranscript for the customer side — replica turns
-// are dropped so we don't echo the avatar into our own chat pipeline.
 export function useTavusTranscripts({
-  conversationId,
+  conversationIds,
   onUserTranscript,
+  onCartAction,
+  onFinalize,
 }: UseTavusTranscriptsArgs): void {
-  const handlerRef = useRef(onUserTranscript);
-  handlerRef.current = onUserTranscript;
+  const transcriptRef = useRef(onUserTranscript);
+  const cartActionRef = useRef(onCartAction);
+  const finalizeRef = useRef(onFinalize);
+  transcriptRef.current = onUserTranscript;
+  cartActionRef.current = onCartAction;
+  finalizeRef.current = onFinalize;
+
+  // Stable key so we only re-run the effect when the ACTUAL set of ids
+  // changes, not on every render.
+  const key = conversationIds.filter(Boolean).sort().join(",");
 
   useEffect(() => {
-    if (!conversationId) return;
     if (typeof window === "undefined") return;
+    const ids = key ? key.split(",") : [];
+    const sources = new Map<string, EventSource>();
 
-    const url = `/api/tavus/events?conversationId=${encodeURIComponent(
-      conversationId
-    )}`;
-    const source = new EventSource(url);
-
-    source.onmessage = (evt) => {
+    const onMessage = (evt: MessageEvent) => {
       try {
-        const data = JSON.parse(evt.data) as TavusTranscriptEvent;
-        if (data.role !== "user") return;
-        if (!data.speech.trim()) return;
-        handlerRef.current(data.speech);
+        const data = JSON.parse(evt.data) as TavusChannelEvent;
+        if (data.kind === "transcript") {
+          if (data.role !== "user") return;
+          if (!data.speech.trim()) return;
+          transcriptRef.current?.(data.speech);
+          return;
+        }
+        if (data.kind === "cart_action") {
+          cartActionRef.current?.(data.action, data.payload);
+          return;
+        }
+        if (data.kind === "finalize") {
+          finalizeRef.current?.();
+          return;
+        }
       } catch (err) {
         console.warn("[TavusTranscripts] bad event:", err);
       }
     };
 
-    source.onerror = (err) => {
-      console.warn("[TavusTranscripts] SSE error:", err);
-    };
+    for (const id of ids) {
+      const url = `/api/tavus/events?conversationId=${encodeURIComponent(id)}`;
+      const source = new EventSource(url);
+      source.onmessage = onMessage;
+      source.onerror = (err) => {
+        console.warn("[TavusTranscripts] SSE error for", id, err);
+      };
+      sources.set(id, source);
+    }
 
     return () => {
-      source.close();
+      for (const s of sources.values()) s.close();
     };
-  }, [conversationId]);
+  }, [key]);
 }

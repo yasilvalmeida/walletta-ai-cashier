@@ -64,6 +64,23 @@ export function useConversation(options: UseConversationOptions = {}) {
   const ttsRef = useRef(tts);
   ttsRef.current = tts;
 
+  // When the receipt snapshot goes from set → null (customer tapped
+  // "New Order"), wipe the chat history. Otherwise GPT-4o carries the
+  // old conversation into the next order and may re-add items that are
+  // already gone from the cart.
+  const receiptSnapshot = useCartStore((s) => s.receiptSnapshot);
+  const prevSnapshotRef = useRef(receiptSnapshot);
+  useEffect(() => {
+    const prev = prevSnapshotRef.current;
+    prevSnapshotRef.current = receiptSnapshot;
+    if (prev && !receiptSnapshot) {
+      console.log("[Conversation] New order — resetting chat history");
+      messagesRef.current = [];
+      setTranscript("");
+      setAssistantText("");
+    }
+  }, [receiptSnapshot]);
+
   // Transition to "listening" when both SSE stream and TTS queue are done
   useEffect(() => {
     if (tts.status === "idle" && streamDoneRef.current) {
@@ -112,22 +129,29 @@ export function useConversation(options: UseConversationOptions = {}) {
             fullResponse += delta;
             setAssistantText(fullResponse);
 
-            // Stream sentences to Cartesia TTS only when Tavus is off.
+            // Stream clauses to Cartesia TTS only when Tavus is off.
             // When Tavus is on the avatar speaks already; Cartesia would
             // layer a second voice on top.
+            //
+            // Clause-level boundary (. ! ? ; , —) instead of sentence-
+            // only so the first audio chunk fires on the FIRST natural
+            // pause, not the first full stop. Reduces perceived LLM→TTS
+            // latency noticeably on multi-clause responses. We still
+            // require a min-length of 18 chars so we don't produce
+            // chunks like "Got," or "Sure,".
             sentenceBuffer += delta;
-            const boundaryIdx = sentenceBuffer.search(/[.!?]\s/);
-            if (boundaryIdx >= 0) {
-              const sentence = sentenceBuffer
+            const boundaryIdx = sentenceBuffer.search(/[.!?;,]\s/);
+            if (boundaryIdx >= 18) {
+              const chunk = sentenceBuffer
                 .slice(0, boundaryIdx + 1)
                 .trim();
               sentenceBuffer = sentenceBuffer.slice(boundaryIdx + 2);
               if (
-                sentence &&
+                chunk &&
                 cartesiaEnabledRef.current &&
                 !externalSilentRef.current
               ) {
-                ttsRef.current.enqueue(sentence);
+                ttsRef.current.enqueue(chunk);
               }
             }
           },
@@ -171,11 +195,9 @@ export function useConversation(options: UseConversationOptions = {}) {
 
             // Deferred to onDone so any cart_action events from this
             // turn have already applied to the store before we snapshot
-            // the receipt. Without this, saying "latte, that's all" in
-            // a single utterance would freeze the cart at its
-            // pre-utterance state (empty for post-call queue runs).
+            // the receipt. Also guarded against empty carts.
             const lower = userMessage.toLowerCase();
-            if (
+            const isFinalize =
               lower.includes("checkout") ||
               lower.includes("pay") ||
               lower.includes("that's all") ||
@@ -183,9 +205,17 @@ export function useConversation(options: UseConversationOptions = {}) {
               lower === "done" ||
               lower.endsWith(" done") ||
               lower.startsWith("i'm done") ||
-              lower.startsWith("i am done")
-            ) {
-              setReceiptReady(true);
+              lower.startsWith("i am done");
+            if (isFinalize) {
+              const cartHasItems =
+                useCartStore.getState().items.length > 0;
+              if (cartHasItems) {
+                setReceiptReady(true);
+              } else {
+                console.log(
+                  "[Chat] Finalize keyword matched but cart is empty — ignoring."
+                );
+              }
             }
 
             if (cartesiaEnabledRef.current && fullResponse.trim()) {
@@ -267,15 +297,12 @@ export function useConversation(options: UseConversationOptions = {}) {
         }
       },
       onSpeechEnd: (fullTranscript: string) => {
-        // When Tavus is feeding transcripts via its own STT, skip our
-        // Deepgram end-of-speech handler so we don't double-send (or
-        // worse, send the avatar's echo back into the chat).
-        if (tavusTranscriptsActiveRef.current) return;
-        // Also skip while we're draining the post-call Tavus transcript
-        // queue. Otherwise Deepgram's sendToChat would race and abort
-        // the external queue's fetch mid-stream (seen as "Fetch is
-        // aborted" in the console).
-        if (externalSilentRef.current) return;
+        // Deepgram → /api/chat is the spec'd M2 pipeline for cart
+        // updates in BOTH modes. No gating on Tavus status — Tavus's
+        // tool-call / post-call transcript bridge was over-engineered
+        // and unreliable. The avatar still speaks via its own pipeline;
+        // our chat is just the source of truth for cart mutations, with
+        // Cartesia TTS speaking the response only when Tavus isn't.
         const s = ttsRef.current.status;
         if (s === "speaking" || s === "loading") return;
         if (fullTranscript.trim()) {

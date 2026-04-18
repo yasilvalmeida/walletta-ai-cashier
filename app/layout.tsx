@@ -35,8 +35,21 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="en" className={`${cormorant.variable} ${dmSans.variable} h-full`}>
-      <body className="h-full overflow-hidden antialiased">{children}</body>
+    <html
+      lang="en"
+      className={`${cormorant.variable} ${dmSans.variable} h-full`}
+      suppressHydrationWarning
+    >
+      {/* suppressHydrationWarning — browser extensions (Bitdefender /
+          BIS, others) inject attributes onto <body> before React
+          hydrates, which React normally logs as a hydration mismatch.
+          The warning is cosmetic here; the app renders fine. */}
+      <body
+        className="h-full overflow-hidden antialiased"
+        suppressHydrationWarning
+      >
+        {children}
+      </body>
     </html>
   );
 }
