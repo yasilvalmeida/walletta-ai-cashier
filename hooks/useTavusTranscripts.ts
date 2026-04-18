@@ -34,7 +34,11 @@ type TavusChannelEvent =
     };
 
 interface UseTavusTranscriptsArgs {
-  conversationId: string | null;
+  // Array of active conversation ids to subscribe to. Usually 1-2:
+  // the live conversation + the previous one still in its post-call
+  // transcript grace window. Managing both in a single hook invocation
+  // avoids the close/reopen gap a pair of hook calls would create.
+  conversationIds: string[];
   onUserTranscript?: (speech: string) => void;
   onCartAction?: (
     action: "add" | "remove",
@@ -43,15 +47,8 @@ interface UseTavusTranscriptsArgs {
   onFinalize?: () => void;
 }
 
-// Streams Tavus events over SSE from /api/tavus/events. Three kinds of
-// events flow through one channel:
-//  - transcript  — diagnostic / fallback; user-side speech
-//  - cart_action — avatar called add_to_cart or remove_from_cart
-//  - finalize    — avatar called finalize_order (customer is done)
-// Callbacks are kept in refs so a parent can pass inline handlers
-// without thrashing the EventSource subscription.
 export function useTavusTranscripts({
-  conversationId,
+  conversationIds,
   onUserTranscript,
   onCartAction,
   onFinalize,
@@ -63,16 +60,16 @@ export function useTavusTranscripts({
   cartActionRef.current = onCartAction;
   finalizeRef.current = onFinalize;
 
+  // Stable key so we only re-run the effect when the ACTUAL set of ids
+  // changes, not on every render.
+  const key = conversationIds.filter(Boolean).sort().join(",");
+
   useEffect(() => {
-    if (!conversationId) return;
     if (typeof window === "undefined") return;
+    const ids = key ? key.split(",") : [];
+    const sources = new Map<string, EventSource>();
 
-    const url = `/api/tavus/events?conversationId=${encodeURIComponent(
-      conversationId
-    )}`;
-    const source = new EventSource(url);
-
-    source.onmessage = (evt) => {
+    const onMessage = (evt: MessageEvent) => {
       try {
         const data = JSON.parse(evt.data) as TavusChannelEvent;
         if (data.kind === "transcript") {
@@ -94,12 +91,18 @@ export function useTavusTranscripts({
       }
     };
 
-    source.onerror = (err) => {
-      console.warn("[TavusTranscripts] SSE error:", err);
-    };
+    for (const id of ids) {
+      const url = `/api/tavus/events?conversationId=${encodeURIComponent(id)}`;
+      const source = new EventSource(url);
+      source.onmessage = onMessage;
+      source.onerror = (err) => {
+        console.warn("[TavusTranscripts] SSE error for", id, err);
+      };
+      sources.set(id, source);
+    }
 
     return () => {
-      source.close();
+      for (const s of sources.values()) s.close();
     };
-  }, [conversationId]);
+  }, [key]);
 }

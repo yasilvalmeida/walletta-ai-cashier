@@ -81,56 +81,12 @@ export function CashierApp() {
     tavusTranscriptsActive,
   });
 
-  // Keep the SSE subscription open for a short grace period after Tavus
-  // disconnects. Tavus only emits application.transcription_ready AFTER
-  // system.shutdown, so if we close the channel the moment the user
-  // hangs up we miss the full-conversation transcript and the cart
-  // never populates. 60s is plenty — Tavus normally sends the ready
-  // event within a few seconds of shutdown.
-  const [trailingConversationId, setTrailingConversationId] = useState<
-    string | null
-  >(null);
-  useEffect(() => {
-    const id = tavus.session?.conversationId ?? null;
-    if (id) {
-      setTrailingConversationId(id);
-      return;
-    }
-    if (!trailingConversationId) return;
-    const timer = setTimeout(() => setTrailingConversationId(null), 60000);
-    return () => clearTimeout(timer);
-  }, [tavus.session?.conversationId, trailingConversationId]);
-
-  // Tool-call driven cart updates — the primary mechanism now that the
-  // Tavus persona has add_to_cart / remove_from_cart / finalize_order
-  // tools. onUserTranscript is intentionally NOT wired: we'd otherwise
-  // run the same user turn through /api/chat as well, which would
-  // double-add every item the avatar already tool-called for.
-  const removeLine = useCartStore((s) => s.removeLine);
-  useTavusTranscripts({
-    conversationId: trailingConversationId,
-    onCartAction: (action, payload) => {
-      if (action === "add") {
-        addItem(payload);
-      } else {
-        // Tavus gave us a product_id — remove the first matching line
-        // so the cart UI stays in sync with the avatar's confirmation.
-        const items = useCartStore.getState().items;
-        const target = items.find((i) => i.product_id === payload.product_id);
-        if (target) {
-          const lineKeyOf = (i: typeof target) =>
-            `${i.product_id}::${i.size ?? ""}::${(i.modifiers ?? [])
-              .map((m) => m.label)
-              .sort()
-              .join("|")}`;
-          removeLine(lineKeyOf(target));
-        }
-      }
-    },
-    onFinalize: () => {
-      setReceiptReady(true);
-    },
-  });
+  // Cart is fed by our Deepgram → /api/chat pipeline in BOTH modes.
+  // No Tavus-side bridge — spec'd M2 architecture: user speech →
+  // Deepgram STT → GPT-4o (with catalog in system prompt + hotwords
+  // in Deepgram) → SSE cart_action events → cart_store. The Tavus
+  // avatar handles voice output via its own internal pipeline and is
+  // decoupled from our cart logic.
 
   // When the receipt slides up, end the Tavus call AFTER a short delay
   // so the avatar's closing "your receipt is up, thanks" can finish —
@@ -146,6 +102,20 @@ export function CashierApp() {
     const timer = setTimeout(() => tavus.disconnect(), 2000);
     return () => clearTimeout(timer);
   }, [receiptSnapshot, tavus]);
+
+  // When the customer taps "New Order" (receipt snapshot goes from set
+  // → null), reboot the Tavus session so the avatar is live again for
+  // the next customer. Without this the iframe stays torn down and the
+  // user sees a dead gradient with no audio.
+  const prevSnapshotCaRef = useRef(receiptSnapshot);
+  useEffect(() => {
+    const prev = prevSnapshotCaRef.current;
+    prevSnapshotCaRef.current = receiptSnapshot;
+    if (prev && !receiptSnapshot && tavusEnabled) {
+      console.log("[CashierApp] New order — reconnecting Tavus");
+      void tavus.connect();
+    }
+  }, [receiptSnapshot, tavusEnabled, tavus]);
   const overlayStatus = getOverlayStatus(
     conversation.phase,
     conversation.deepgramStatus

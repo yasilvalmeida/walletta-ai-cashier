@@ -219,14 +219,55 @@ export async function POST(request: Request) {
     }
   }
 
-  // Post-call cleanup
-  if (
-    eventType.includes("shutdown") ||
-    eventType.includes("ended") ||
-    eventType === "conversation.ended"
-  ) {
-    clearConversation(conversationId);
+  // Post-call fan-out — Tavus delivers the full conversation transcript
+  // AFTER system.shutdown via application.transcription_ready. The tool-
+  // call path (above) is the primary route for cart updates, but Tavus's
+  // LLM doesn't always call them reliably, so we also replay every user
+  // turn from the final transcript into the SSE channel. The client
+  // queue runs each turn through /api/chat, GPT-4o emits cart_actions,
+  // cart populates from the avatar's accurate STT instead of our
+  // Deepgram's mis-hearings.
+  if (eventType === "application.transcription_ready") {
+    const props = body.properties ?? {};
+    const transcript = (props as Record<string, unknown>).transcript;
+    if (Array.isArray(transcript)) {
+      console.log(
+        "[Tavus webhook] transcription_ready turns:",
+        transcript.length
+      );
+      let published = 0;
+      for (const turn of transcript) {
+        if (!turn || typeof turn !== "object") continue;
+        const rec = turn as Record<string, unknown>;
+        const role = typeof rec.role === "string" ? rec.role : "";
+        const content = typeof rec.content === "string" ? rec.content : "";
+        if (role !== "user" || !content.trim()) continue;
+        console.log(
+          "[Tavus webhook]   user turn:",
+          content.slice(0, 80).replace(/\n/g, " ")
+        );
+        publishEvent({
+          kind: "transcript",
+          conversationId,
+          role: "user",
+          speech: content.trim(),
+          timestamp: Date.now(),
+        });
+        published++;
+      }
+      console.log(
+        "[Tavus webhook] transcription_ready published user turns:",
+        published
+      );
+    }
   }
+
+  // Post-call cleanup — DEFERRED. We intentionally don't drop the
+  // conversation's backlog here because transcription_ready (post-call)
+  // arrives AFTER system.shutdown. Clearing on shutdown would mean late
+  // subscribers lose the replay. The backlog cap in lib/tavusEvents
+  // naturally trims itself, and a stale conversation id won't match a
+  // new session anyway.
 
   return NextResponse.json({ ok: true });
 }

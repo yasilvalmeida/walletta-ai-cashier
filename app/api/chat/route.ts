@@ -144,8 +144,11 @@ function buildSystemPrompt(cartContext: OrderItem[]): string {
 5. **Pastries warmed** — when adding a pastry, ask if they'd like it warmed.
 6. **Close confidently** — once the customer signals completion ("that's all", "that's it", "checkout"), summarize the order and confirm the total. Do not keep upselling after they close.
 
-# How to fire tools
-- The moment the customer confirms an item, call add_to_cart. Do not wait for them to finish talking about sides.
+# How to fire tools — ABSOLUTE RULES
+- The SECOND you see a menu item named (exactly or fuzzily — "Malibu Mango", "Amalibu Mango", "Maripo Mango", "Malibu", "the mango one"... all mean smoothie-malibu-mango), CALL add_to_cart BEFORE speaking. You do NOT need the customer to say "yes" or "please" first. Naming the item IS the confirmation. Your speech can be a simple acknowledgment like "Got it, one Malibu Mango — anything else?"
+- Customer transcripts come from a speech-to-text pipeline that mis-hears brand names (Malibu → Amalibu, Erewhon → Ere one, etc). Always fuzzy-match against the catalog. If a mangled word is closer to one catalog item than any other, call add_to_cart for that item. Do NOT ask "did you mean X?" — just add X and mention the match in passing.
+- If your reply text mentions an item being added / ordered / picked / gotten, add_to_cart MUST have fired THIS response. Saying "I've added X" or "your total is Y" without the tool call is a critical bug.
+- "That's all" / "no, that's all" / "I'm done" / "checkout" ends the order. Do NOT add more items on that turn. If a fuzzy item was mentioned earlier and you forgot to call add_to_cart then, call it NOW before finalizing.
 - Use the exact product_id and base price from the catalog.
 - If a size was selected, pass unit_price = base price + size price_delta, and pass the size label.
 - Pass modifiers as an array of {label, price} — labels must match the catalog customizations exactly.
@@ -183,11 +186,53 @@ export async function POST(request: Request) {
       })),
     ];
 
+    // Detect if the latest user message mentions ANY menu item (even
+    // loosely). If it does, force the LLM to emit add_to_cart — it keeps
+    // trying to ask for "did you mean X?" or verbalises additions without
+    // actually calling the tool, so we make the tool call deterministic
+    // whenever a catalog match exists.
+    const lastUser = [...parsed.messages]
+      .reverse()
+      .find((m) => m.role === "user");
+    const userText = (lastUser?.content ?? "").toLowerCase();
+    const catalogWords = new Set<string>();
+    for (const p of getAllProducts()) {
+      for (const tok of p.name.toLowerCase().split(/\s+/)) {
+        if (tok.length >= 4) catalogWords.add(tok);
+      }
+      for (const kw of p.search_keywords) {
+        if (kw.length >= 4) catalogWords.add(kw.toLowerCase());
+      }
+    }
+    const mentionsItem =
+      userText.length > 0 &&
+      [...catalogWords].some((w) => userText.includes(w));
+    const lower = userText;
+    const isPureFinalize =
+      lower === "done" ||
+      lower === "that's all" ||
+      lower === "that is all" ||
+      lower === "no, that's all." ||
+      lower === "no, that's all" ||
+      lower === "checkout" ||
+      lower === "no. that's all." ||
+      lower === "pay";
+    const forceAdd = mentionsItem && !isPureFinalize;
+    console.log(
+      "[Chat] forceAdd =",
+      forceAdd,
+      "user:",
+      userText.slice(0, 80)
+    );
+
     const stream = await openai.chat.completions.create({
       model: "gpt-4o",
       messages,
       tools,
       stream: true,
+      tool_choice: forceAdd
+        ? { type: "function", function: { name: "add_to_cart" } }
+        : "auto",
     });
 
     const encoder = new TextEncoder();
