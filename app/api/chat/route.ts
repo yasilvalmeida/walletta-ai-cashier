@@ -207,20 +207,32 @@ export async function POST(request: Request) {
     const mentionsItem =
       userText.length > 0 &&
       [...catalogWords].some((w) => userText.includes(w));
-    const lower = userText;
+    // Remove / correction intent — "remove", "take off", "cancel",
+    // "delete", "scratch that", "no [item]", "instead", "change",
+    // "actually", "just one / two / three", "only one". If the user
+    // says any of these and references an item, we should NOT force
+    // add_to_cart; let the LLM pick remove_from_cart (or nothing) on
+    // its own.
+    const isRemoveOrCorrection =
+      /\b(remove|take\s+off|cancel|delete|scratch\s+that|instead|change|actually|only|just\s+(?:one|two|three|1|2|3))\b/.test(
+        userText
+      ) ||
+      /\bno[,\s]+(?:the|that|not)\b/.test(userText);
     const isPureFinalize =
-      lower === "done" ||
-      lower === "that's all" ||
-      lower === "that is all" ||
-      lower === "no, that's all." ||
-      lower === "no, that's all" ||
-      lower === "checkout" ||
-      lower === "no. that's all." ||
-      lower === "pay";
-    const forceAdd = mentionsItem && !isPureFinalize;
+      userText === "done" ||
+      userText === "that's all" ||
+      userText === "that is all" ||
+      userText === "no, that's all." ||
+      userText === "no, that's all" ||
+      userText === "checkout" ||
+      userText === "no. that's all." ||
+      userText === "pay";
+    const forceAdd = mentionsItem && !isPureFinalize && !isRemoveOrCorrection;
     console.log(
       "[Chat] forceAdd =",
       forceAdd,
+      "remove/correct =",
+      isRemoveOrCorrection,
       "user:",
       userText.slice(0, 80)
     );
