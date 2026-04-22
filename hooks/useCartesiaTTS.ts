@@ -5,20 +5,37 @@ import {
   getSharedAudioContext,
   resumeSharedAudioContext,
 } from "@/lib/audio";
+import { telemetry } from "@/lib/telemetry";
 
 type TTSStatus = "idle" | "loading" | "speaking";
 
 interface UseCartesiaTTSReturn {
   status: TTSStatus;
-  enqueue: (text: string) => void;
+  enqueue: (text: string, language?: string) => void;
+  // Push an already-synthesized WAV buffer (e.g. a pre-cached filler)
+  // straight onto the playback queue, skipping the /api/tts fetch.
+  // Used for sub-400ms-perceived acknowledgment playback at speech-end.
+  enqueueBuffer: (buffer: ArrayBuffer) => void;
+  // Synthesize once and return the raw ArrayBuffer so the caller can
+  // cache it and later hand it back via enqueueBuffer. No queueing
+  // happens here — pure fetch.
+  preloadBuffer: (text: string, language?: string) => Promise<ArrayBuffer | null>;
   stop: () => void;
   unlock: () => void;
+}
+
+interface QueueEntry {
+  buffer: Promise<ArrayBuffer | null>;
+  // Filler entries emit telemetry as `fillerFirstPlay` rather than
+  // `audioFirstPlay` so we can see both the perceived-response time
+  // (filler starts) and the actual-LLM time (first real clause starts).
+  isFiller: boolean;
 }
 
 export function useCartesiaTTS(): UseCartesiaTTSReturn {
   const [status, setStatus] = useState<TTSStatus>("idle");
   const currentSourceRef = useRef<AudioBufferSourceNode | null>(null);
-  const queueRef = useRef<Array<Promise<ArrayBuffer | null>>>([]);
+  const queueRef = useRef<QueueEntry[]>([]);
   const processingRef = useRef(false);
   const genRef = useRef(0);
   const unlockedRef = useRef(false);
@@ -56,8 +73,8 @@ export function useCartesiaTTS(): UseCartesiaTTSReturn {
       }
 
       while (queueRef.current.length > 0 && genRef.current === gen) {
-        const bufferPromise = queueRef.current.shift()!;
-        const arrayBuffer = await bufferPromise;
+        const entry = queueRef.current.shift()!;
+        const arrayBuffer = await entry.buffer;
 
         if (genRef.current !== gen || !arrayBuffer) continue;
 
@@ -107,6 +124,9 @@ export function useCartesiaTTS(): UseCartesiaTTSReturn {
 
           try {
             source.start();
+            telemetry.mark(
+              entry.isFiller ? "fillerFirstPlay" : "audioFirstPlay"
+            );
           } catch (err) {
             console.warn("[TTS] source.start failed:", err);
             done();
@@ -134,7 +154,7 @@ export function useCartesiaTTS(): UseCartesiaTTSReturn {
   );
 
   const enqueue = useCallback(
-    (text: string) => {
+    (text: string, language?: string) => {
       if (!text.trim()) return;
 
       const gen = genRef.current;
@@ -143,10 +163,11 @@ export function useCartesiaTTS(): UseCartesiaTTSReturn {
       const bufferPromise = fetch("/api/tts", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ text }),
+        body: JSON.stringify({ text, language }),
       })
         .then((res) => {
           if (!res.ok) throw new Error(`TTS ${res.status}`);
+          telemetry.mark("ttsFirstByte");
           return res.arrayBuffer();
         })
         .catch((err: unknown) => {
@@ -154,13 +175,46 @@ export function useCartesiaTTS(): UseCartesiaTTSReturn {
           return null;
         });
 
-      queueRef.current.push(bufferPromise);
+      queueRef.current.push({ buffer: bufferPromise, isFiller: false });
 
       if (!processingRef.current) {
         void processQueue(gen);
       }
     },
     [processQueue]
+  );
+
+  const enqueueBuffer = useCallback(
+    (buffer: ArrayBuffer) => {
+      const gen = genRef.current;
+      setStatus((prev) => (prev === "idle" ? "loading" : prev));
+      queueRef.current.push({
+        buffer: Promise.resolve(buffer),
+        isFiller: true,
+      });
+      if (!processingRef.current) {
+        void processQueue(gen);
+      }
+    },
+    [processQueue]
+  );
+
+  const preloadBuffer = useCallback(
+    async (text: string, language?: string): Promise<ArrayBuffer | null> => {
+      if (!text.trim()) return null;
+      try {
+        const res = await fetch("/api/tts", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ text, language }),
+        });
+        if (!res.ok) return null;
+        return await res.arrayBuffer();
+      } catch {
+        return null;
+      }
+    },
+    []
   );
 
   const stop = useCallback(() => {
@@ -215,5 +269,5 @@ export function useCartesiaTTS(): UseCartesiaTTSReturn {
       });
   }, []);
 
-  return { status, enqueue, stop, unlock };
+  return { status, enqueue, enqueueBuffer, preloadBuffer, stop, unlock };
 }

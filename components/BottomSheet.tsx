@@ -40,18 +40,33 @@ export function BottomSheet() {
     );
   }
 
-  // Cart chip is ALWAYS visible so the customer can see the cart state
-  // at a glance — even when empty. Shows "Cart — empty" or "N items —
-  // $XX.YY" and expands on tap / when items are added.
+  // Per Temur's Apr 22 feedback: the checkout UI must be a dynamic
+  // pop-up that "appears only when necessary". When the cart is empty
+  // (pre-order or post-receipt-cleared) we render nothing so the avatar
+  // owns the whole screen. The pill returns the instant the LLM fires
+  // add_to_cart (the auto-expand effect above catches the transition).
   const isEmpty = items.length === 0;
+  if (isEmpty) return null;
+
   return (
-    <div className="absolute bottom-[calc(8rem+env(safe-area-inset-bottom))] left-4 right-4 z-10 glass-theme">
-      <div className="backdrop-blur-2xl bg-black/50 border border-white/10 rounded-2xl overflow-hidden shadow-2xl">
+    <motion.div
+      initial={{ opacity: 0, y: 24 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ type: "spring", stiffness: 380, damping: 30 }}
+      // Drawer, not floating card: flush to the screen edges, rounded
+      // only at the top so it reads as a sheet rising from the bottom
+      // of the iPad, not a dashboard widget. The mic footer below still
+      // has its own safe-area padding — we sit just above it.
+      className="absolute bottom-[calc(7rem+env(safe-area-inset-bottom))] left-0 right-0 z-10 glass-theme"
+    >
+      {/* backdrop-blur-md (12px) not 2xl (40px) — 2xl over the live Tavus
+          iframe forces Safari to composite video→blur every frame and
+          was a visible source of jank on iPad Pro. */}
+      <div className="backdrop-blur-md bg-black/65 border-t border-white/10 rounded-t-3xl overflow-hidden shadow-2xl">
         <button
-          onClick={() => !isEmpty && setExpanded(!expanded)}
-          disabled={isEmpty}
+          onClick={() => setExpanded(!expanded)}
           className="w-full px-5 py-3 flex items-center justify-between"
-          aria-label={isEmpty ? "Cart is empty" : "Toggle cart"}
+          aria-label="Toggle cart"
         >
           <div className="flex items-center gap-3">
             {/* Cart icon */}
@@ -69,19 +84,12 @@ export function BottomSheet() {
               <circle cx="18" cy="20" r="1.4" />
               <path d="M3 4h2l2.4 11.5a2 2 0 002 1.5h8.2a2 2 0 002-1.5L21.5 8H6" />
             </svg>
-            {isEmpty ? (
-              <span className="font-sans text-sm text-white/50">Cart</span>
-            ) : (
-              <>
-                <span className="font-sans text-sm text-white/60">
-                  {items.length} {items.length === 1 ? "item" : "items"}
-                </span>
-                {/* Item count badge */}
-                <span className="font-sans text-[10px] bg-accent/90 text-black font-semibold px-1.5 py-0.5 rounded-full">
-                  {items.length}
-                </span>
-              </>
-            )}
+            <span className="font-sans text-sm text-white/60">
+              {items.length} {items.length === 1 ? "item" : "items"}
+            </span>
+            <span className="font-sans text-[10px] bg-accent/90 text-black font-semibold px-1.5 py-0.5 rounded-full">
+              {items.length}
+            </span>
           </div>
           <span className="font-display text-lg font-semibold text-white tabular-nums">
             ${total.toFixed(2)}
@@ -89,7 +97,7 @@ export function BottomSheet() {
         </button>
 
         <AnimatePresence>
-          {expanded && !isEmpty && (
+          {expanded && (
             <motion.div
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
@@ -134,6 +142,6 @@ export function BottomSheet() {
           )}
         </AnimatePresence>
       </div>
-    </div>
+    </motion.div>
   );
 }

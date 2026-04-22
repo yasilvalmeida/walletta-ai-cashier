@@ -40,6 +40,11 @@ interface UseTavusTranscriptsArgs {
   // avoids the close/reopen gap a pair of hook calls would create.
   conversationIds: string[];
   onUserTranscript?: (speech: string) => void;
+  // Fires every time Tavus publishes a replica transcript chunk (the
+  // avatar's own speech). Used as a proof-of-life signal for the
+  // Deepgram echo guard — receivers should assume the avatar is still
+  // audibly speaking for ~1.5s past the last such event.
+  onReplicaTranscript?: (speech: string) => void;
   onCartAction?: (
     action: "add" | "remove",
     payload: TavusCartActionPayload
@@ -50,13 +55,16 @@ interface UseTavusTranscriptsArgs {
 export function useTavusTranscripts({
   conversationIds,
   onUserTranscript,
+  onReplicaTranscript,
   onCartAction,
   onFinalize,
 }: UseTavusTranscriptsArgs): void {
   const transcriptRef = useRef(onUserTranscript);
+  const replicaRef = useRef(onReplicaTranscript);
   const cartActionRef = useRef(onCartAction);
   const finalizeRef = useRef(onFinalize);
   transcriptRef.current = onUserTranscript;
+  replicaRef.current = onReplicaTranscript;
   cartActionRef.current = onCartAction;
   finalizeRef.current = onFinalize;
 
@@ -72,9 +80,18 @@ export function useTavusTranscripts({
     const onMessage = (evt: MessageEvent) => {
       try {
         const data = JSON.parse(evt.data) as TavusChannelEvent;
+        // Defense-in-depth: SSE is already filtered by conversationId
+        // via URL param, but the server pub/sub stores a backlog per
+        // id. If a stale id somehow re-enters our subscription set the
+        // match check keeps its events out of the live handlers.
+        if (!ids.includes(data.conversationId)) return;
         if (data.kind === "transcript") {
-          if (data.role !== "user") return;
           if (!data.speech.trim()) return;
+          if (data.role === "replica") {
+            replicaRef.current?.(data.speech);
+            return;
+          }
+          if (data.role !== "user") return;
           transcriptRef.current?.(data.speech);
           return;
         }

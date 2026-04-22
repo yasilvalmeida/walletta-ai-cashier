@@ -24,6 +24,17 @@ export default defineConfig({
           "Mozilla/5.0 (iPad; CPU OS 16_0 like Mac OS X) AppleWebKit/605.1.15",
       },
     },
+    {
+      // Apr 22 — Temur's on-site environment is iPad Pro portrait.
+      // Added so layout assertions catch regressions in the orientation
+      // the executive demo actually runs in.
+      name: "ipad-portrait",
+      use: {
+        viewport: { width: 1024, height: 1366 },
+        userAgent:
+          "Mozilla/5.0 (iPad; CPU OS 16_0 like Mac OS X) AppleWebKit/605.1.15",
+      },
+    },
   ],
   webServer: {
     command: "npm run dev",

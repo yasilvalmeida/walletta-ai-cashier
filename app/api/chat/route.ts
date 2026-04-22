@@ -97,7 +97,51 @@ function formatProductForPrompt(p: Product): string {
   return `- ${p.display_name} (${p.id}): $${p.price.toFixed(2)}${sizes}${customs}`;
 }
 
-function buildSystemPrompt(cartContext: OrderItem[]): string {
+// Maps ISO-639-1 codes from Deepgram to human-readable names GPT-4o
+// recognizes unambiguously in the language-mirror instruction. English
+// is the default and does not need to be declared.
+const LANGUAGE_NAMES: Record<string, string> = {
+  en: "English",
+  es: "Spanish",
+  zh: "Mandarin Chinese",
+  fr: "French",
+  de: "German",
+  ja: "Japanese",
+  ko: "Korean",
+  pt: "Portuguese",
+  ru: "Russian",
+  ar: "Arabic",
+  hi: "Hindi",
+  it: "Italian",
+};
+
+function timeContextLine(): string {
+  // Erewhon Venice is on PT. Use America/Los_Angeles so the upsell
+  // recommendation matches what a human cashier would say on the floor
+  // regardless of the server's clock.
+  const hour = Number(
+    new Intl.DateTimeFormat("en-US", {
+      timeZone: "America/Los_Angeles",
+      hour: "numeric",
+      hour12: false,
+    }).format(new Date())
+  );
+  if (hour >= 5 && hour < 11) {
+    return "TIME CONTEXT: Morning — pair a warmed pastry with coffee; lean toward hot drinks and breakfast pastries.";
+  }
+  if (hour >= 11 && hour < 15) {
+    return "TIME CONTEXT: Midday — smoothies, iced coffee, and lighter pastries sell best.";
+  }
+  if (hour >= 15 && hour < 19) {
+    return "TIME CONTEXT: Afternoon — suggest iced drinks, tonics, and a pick-me-up pastry.";
+  }
+  return "TIME CONTEXT: Evening — keep it light, suggest tonics or smoothies; avoid pushing espresso.";
+}
+
+function buildSystemPrompt(
+  cartContext: OrderItem[],
+  language?: string
+): string {
   const catalog = getAllProducts();
   const smoothies = catalog.filter((p) => p.category === "smoothies");
   const coffee = catalog.filter((p) => p.category === "coffee_tonics");
@@ -134,15 +178,22 @@ function buildSystemPrompt(cartContext: OrderItem[]): string {
         `\n\nSubtotal: $${subtotal.toFixed(2)}\nTax (9.5%): $${tax.toFixed(2)}\nTotal: $${total.toFixed(2)}`
       : "Cart is empty.";
 
+  const languageLine =
+    language && language !== "en" && LANGUAGE_NAMES[language]
+      ? `\n# Language\nThe customer just spoke ${LANGUAGE_NAMES[language]} (Deepgram code \"${language}\"). Respond entirely in ${LANGUAGE_NAMES[language]}. Keep prices, product IDs, and catalog-exact product names in their original English (e.g. "Malibu Mango", "Butter Croissant", "$5.50") so add_to_cart arguments remain deterministic.\n`
+      : "";
+
   return `You are Jordan, the Erewhon Market cashier AI. You are warm, premium, and revenue-obsessed — a boutique salesperson, never a rigid script. Keep spoken replies to two sentences max.
+${languageLine}
+${timeContextLine()}
 
 # Upselling Playbook (use judgment — never badger)
-1. **Cup size** — when a customer orders any coffee or tonic that has a sizes array, ask their preferred size if they did not specify. Default to 12oz only after they confirm.
+1. **Cup size — REQUIRED.** For any coffee or tonic with a sizes array, if the customer did not name a size, your first reply MUST offer the ladder ("12, 16, or 20 ounce?") before confirming. Do not default to 12oz silently.
 2. **Modifiers are always on the table** — if a customer asks for milk, oat milk, whole milk, an extra shot, vanilla, caramel, iced, warmed, etc. ALWAYS honor it and attach the matching modifier to add_to_cart. Never refuse a reasonable modifier. If a modifier they request is not on the product, say so briefly and offer the closest real option.
-3. **Pair pastries with coffee** — when a customer orders any coffee/tonic and the cart has no pastry, suggest one pastry by name exactly once. Example: "Would you like a warm butter croissant with that?" Do not repeat if declined.
+3. **Pair a pastry with coffee** — when a customer orders any coffee/tonic and the cart has no pastry, suggest ONE pastry by name exactly once. Morning → warmed butter croissant or morning bun; midday/afternoon → scone or blueberry muffin. Do not repeat if declined.
 4. **Upsell shots + milk on black coffee** — for an Americano, if the customer does not specify, briefly offer: "Would you like milk or an extra shot?"
 5. **Pastries warmed** — when adding a pastry, ask if they'd like it warmed.
-6. **Close confidently** — once the customer signals completion ("that's all", "that's it", "checkout"), summarize the order and confirm the total. Do not keep upselling after they close.
+6. **Close confidently — stop upselling.** Once the customer signals completion ("that's all", "that's it", "checkout", "I'm done", "no thanks"), DO NOT suggest anything else. Read back the order tersely ("One 16oz oat latte and a warm butter croissant — eleven twenty-five total.") and stop. Adding a pastry suggestion after "that's all" is a critical failure.
 
 # How to fire tools — ABSOLUTE RULES
 - The SECOND you see a menu item named (exactly or fuzzily — "Malibu Mango", "Amalibu Mango", "Maripo Mango", "Malibu", "the mango one"... all mean smoothie-malibu-mango), CALL add_to_cart BEFORE speaking. You do NOT need the customer to say "yes" or "please" first. Naming the item IS the confirmation. Your speech can be a simple acknowledgment like "Got it, one Malibu Mango — anything else?"
@@ -175,7 +226,7 @@ export async function POST(request: Request) {
 
     const systemMessage: ChatCompletionMessageParam = {
       role: "system",
-      content: buildSystemPrompt(parsed.cartContext),
+      content: buildSystemPrompt(parsed.cartContext, parsed.language),
     };
 
     const messages: ChatCompletionMessageParam[] = [
