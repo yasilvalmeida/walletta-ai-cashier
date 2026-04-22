@@ -6,6 +6,9 @@ import { useDeepgram } from "@/hooks/useDeepgram";
 import { useVAD } from "@/hooks/useVAD";
 import { useCartesiaTTS } from "@/hooks/useCartesiaTTS";
 import { parseSSEStream } from "@/lib/sse";
+import { telemetry } from "@/lib/telemetry";
+import { isAvatarSpeaking } from "@/lib/tavusPresence";
+import { fillersFor, pickFiller } from "@/lib/fillers";
 import type { OrderItem, SSEEvent } from "@/lib/schemas";
 
 type ConversationPhase =
@@ -23,22 +26,17 @@ interface ChatMessage {
 interface UseConversationOptions {
   // True when Cartesia TTS should speak the response (fallback mode when
   // Tavus is disabled or unavailable). When false, the Tavus avatar is
-  // the voice and Cartesia stays silent.
+  // the voice and Cartesia stays silent. The echo guard that suppresses
+  // Deepgram while the avatar speaks lives in lib/tavusPresence and is
+  // fed by CashierApp's useTavusTranscripts subscription — no extra
+  // flag is needed here.
   cartesiaEnabled?: boolean;
-  // True when transcripts come from Tavus's server-side STT (via the
-  // webhook/SSE bridge) instead of our Deepgram pipeline. In that mode
-  // we ignore Deepgram's onSpeechEnd so we don't double-transcribe —
-  // the avatar's audio output would get captured by our mic and re-sent
-  // to the chat, creating a feedback loop.
-  tavusTranscriptsActive?: boolean;
 }
 
 export function useConversation(options: UseConversationOptions = {}) {
-  const { cartesiaEnabled = false, tavusTranscriptsActive = false } = options;
+  const { cartesiaEnabled = false } = options;
   const cartesiaEnabledRef = useRef(cartesiaEnabled);
   cartesiaEnabledRef.current = cartesiaEnabled;
-  const tavusTranscriptsActiveRef = useRef(tavusTranscriptsActive);
-  tavusTranscriptsActiveRef.current = tavusTranscriptsActive;
 
   const [phase, setPhase] = useState<ConversationPhase>("idle");
   const [transcript, setTranscript] = useState("");
@@ -55,14 +53,51 @@ export function useConversation(options: UseConversationOptions = {}) {
   const mediaStreamRef = useRef<MediaStream | null>(null);
   const abortRef = useRef<AbortController | null>(null);
   const streamDoneRef = useRef(false);
-  // True while draining the post-call Tavus transcript queue — in that
-  // window we MUST NOT fire Cartesia because the avatar already spoke
-  // those responses and we'd play a second voice on top of its goodbye.
-  const externalSilentRef = useRef(false);
 
   const tts = useCartesiaTTS();
   const ttsRef = useRef(tts);
   ttsRef.current = tts;
+
+  // Pre-synthesized filler acknowledgments per language, keyed by the
+  // exact filler string (so we can cache multiple phrases per language
+  // and pick randomly at turn-time). Populated lazily the first time a
+  // language is seen — English on mount, others after detection.
+  const fillerCacheRef = useRef<Map<string, ArrayBuffer>>(new Map());
+  const fillerInFlightRef = useRef<Set<string>>(new Set());
+
+  const ensureFillersForLanguage = useCallback(
+    async (language: string) => {
+      const phrases = fillersFor(language);
+      for (const phrase of phrases) {
+        const key = `${language}:${phrase}`;
+        if (fillerCacheRef.current.has(key)) continue;
+        if (fillerInFlightRef.current.has(key)) continue;
+        fillerInFlightRef.current.add(key);
+        const buf = await ttsRef.current.preloadBuffer(phrase, language);
+        fillerInFlightRef.current.delete(key);
+        if (buf) fillerCacheRef.current.set(key, buf);
+      }
+    },
+    []
+  );
+
+  // Pre-cache English fillers on mount so the very first turn gets the
+  // perceived-latency mask (not just turns 2+).
+  useEffect(() => {
+    void ensureFillersForLanguage("en");
+  }, [ensureFillersForLanguage]);
+
+  const playFillerForLanguage = useCallback((language: string | undefined) => {
+    const lang = language ?? "en";
+    const phrase = pickFiller(lang);
+    const key = `${lang}:${phrase}`;
+    const buf = fillerCacheRef.current.get(key);
+    if (!buf) return false;
+    // decodeAudioData detaches its input in some Safari versions, so
+    // we decode against a fresh copy and keep the original in cache.
+    ttsRef.current.enqueueBuffer(buf.slice(0));
+    return true;
+  }, []);
 
   // When the receipt snapshot goes from set → null (customer tapped
   // "New Order"), wipe the chat history. Otherwise GPT-4o carries the
@@ -86,16 +121,52 @@ export function useConversation(options: UseConversationOptions = {}) {
     if (tts.status === "idle" && streamDoneRef.current) {
       streamDoneRef.current = false;
       setPhase("listening");
+      telemetry.mark("audioDone");
+      telemetry.endTurn();
     }
   }, [tts.status, streamDoneSignal]);
 
+  // Stores the last known detected language so we can keep using it
+  // for external (Tavus-initiated) transcripts which don't carry
+  // language metadata, and so mid-turn follow-ups stay consistent.
+  const lastLanguageRef = useRef<string | undefined>(undefined);
+  // Pair (language, turnIndex) so subscribers can react each turn even
+  // when the detected language stays the same ("es" → "es" still fires
+  // the downstream effect because turnIndex incremented).
+  const [turnIndex, setTurnIndex] = useState(0);
+  const [detectedLanguage, setDetectedLanguage] = useState<string | undefined>(
+    undefined
+  );
+
   const sendToChat = useCallback(
-    async (userMessage: string) => {
-      console.log("[Chat] Sending:", userMessage);
+    async (userMessage: string, language?: string) => {
+      console.log("[Chat] Sending:", userMessage, language ? `(${language})` : "");
       ttsRef.current.stop();
       streamDoneRef.current = false;
       setPhase("processing");
       setAssistantText("");
+
+      if (language) {
+        lastLanguageRef.current = language;
+        setDetectedLanguage(language);
+        // Fire-and-forget cache warm for the newly-detected language so
+        // the NEXT turn gets the filler mask (this turn may miss it).
+        void ensureFillersForLanguage(language);
+      }
+      setTurnIndex((i) => i + 1);
+      const activeLanguage = lastLanguageRef.current;
+
+      telemetry.setMode(cartesiaEnabledRef.current ? "cartesia" : "tavus");
+      telemetry.mark("chatRequestSent");
+
+      // Sub-400ms perceived: fire a pre-cached filler the instant we
+      // receive the transcript. Plays within ~50ms via the TTS queue;
+      // the real LLM response queues behind it and picks up naturally
+      // when tokens start streaming. Cartesia-only — in Tavus mode the
+      // avatar owns the voice and layering a second voice would clash.
+      if (cartesiaEnabledRef.current) {
+        playFillerForLanguage(activeLanguage);
+      }
 
       messagesRef.current.push({ role: "user", content: userMessage });
 
@@ -112,6 +183,7 @@ export function useConversation(options: UseConversationOptions = {}) {
           body: JSON.stringify({
             messages: messagesRef.current,
             cartContext,
+            language: activeLanguage,
           }),
           signal: controller.signal,
         });
@@ -126,6 +198,7 @@ export function useConversation(options: UseConversationOptions = {}) {
 
         await parseSSEStream(response, {
           onText: (delta) => {
+            telemetry.mark("llmFirstToken");
             fullResponse += delta;
             setAssistantText(fullResponse);
 
@@ -135,23 +208,19 @@ export function useConversation(options: UseConversationOptions = {}) {
             //
             // Clause-level boundary (. ! ? ; , —) instead of sentence-
             // only so the first audio chunk fires on the FIRST natural
-            // pause, not the first full stop. Reduces perceived LLM→TTS
-            // latency noticeably on multi-clause responses. We still
-            // require a min-length of 18 chars so we don't produce
-            // chunks like "Got," or "Sure,".
+            // pause, not the first full stop. Min-length dropped from
+            // 18 → 10 chars (Apr 22) so short acknowledgments like
+            // "Got it — one latte," start speaking on the first comma
+            // instead of waiting for the full sentence.
             sentenceBuffer += delta;
             const boundaryIdx = sentenceBuffer.search(/[.!?;,]\s/);
-            if (boundaryIdx >= 18) {
+            if (boundaryIdx >= 10) {
               const chunk = sentenceBuffer
                 .slice(0, boundaryIdx + 1)
                 .trim();
               sentenceBuffer = sentenceBuffer.slice(boundaryIdx + 2);
-              if (
-                chunk &&
-                cartesiaEnabledRef.current &&
-                !externalSilentRef.current
-              ) {
-                ttsRef.current.enqueue(chunk);
+              if (chunk && cartesiaEnabledRef.current) {
+                ttsRef.current.enqueue(chunk, activeLanguage);
               }
             }
           },
@@ -179,6 +248,7 @@ export function useConversation(options: UseConversationOptions = {}) {
             }
           },
           onDone: () => {
+            telemetry.mark("llmDone");
             console.log("[Chat] Done. Response:", fullResponse);
             if (fullResponse) {
               messagesRef.current.push({
@@ -189,7 +259,7 @@ export function useConversation(options: UseConversationOptions = {}) {
 
             const remaining = sentenceBuffer.trim();
             if (remaining && cartesiaEnabledRef.current) {
-              ttsRef.current.enqueue(remaining);
+              ttsRef.current.enqueue(remaining, activeLanguage);
             }
             sentenceBuffer = "";
 
@@ -226,6 +296,7 @@ export function useConversation(options: UseConversationOptions = {}) {
             } else {
               // Tavus mode (or empty response) — transition immediately.
               setPhase("listening");
+              telemetry.endTurn();
             }
           },
           onError: (err) => {
@@ -256,7 +327,7 @@ export function useConversation(options: UseConversationOptions = {}) {
         }
       }
     },
-    [addItem, removeItem, setReceiptReady]
+    [addItem, removeItem, setReceiptReady, ensureFillersForLanguage, playFillerForLanguage]
   );
 
   // Stable refs for hook callbacks to prevent unnecessary re-renders
@@ -266,13 +337,14 @@ export function useConversation(options: UseConversationOptions = {}) {
   const vadOptions = useMemo(
     () => ({
       onSpeechStart: () => {
-        // Guard against echo: if the avatar is currently speaking, the
-        // mic is almost certainly picking up its own voice (iOS echo
-        // cancellation is too weak to suppress it reliably). Refusing
-        // to barge-in here lets TTS finish instead of being killed on
-        // the very first speaker-triggered VAD poll.
+        // Two echo guards: (1) Cartesia is playing our own TTS; (2) the
+        // Tavus avatar is audibly speaking. In either case iOS echo
+        // cancellation is too weak to fully suppress the speaker through
+        // the mic, so we treat VAD "speech start" as likely-spurious and
+        // skip the barge-in.
         const s = ttsRef.current.status;
         if (s === "speaking" || s === "loading") return;
+        if (isAvatarSpeaking()) return;
         ttsRef.current.stop();
         setPhase("listening");
       },
@@ -286,32 +358,42 @@ export function useConversation(options: UseConversationOptions = {}) {
   const deepgramOptions = useMemo(
     () => ({
       onTranscript: (text: string, isFinal: boolean) => {
-        // Same echo guard — Deepgram may also transcribe the avatar's
-        // voice. Showing that echo as a user transcript, or routing it
-        // back into the chat, would feed the model its own output.
+        // Two echo guards: (1) Cartesia is actively playing our TTS; (2)
+        // the Tavus avatar is audibly speaking in the room. Deepgram
+        // transcribes anything the mic picks up — without these guards
+        // the avatar's own voice comes back to us as a "user transcript"
+        // and feeds the chat pipeline its own output.
         const s = ttsRef.current.status;
         if (s === "speaking" || s === "loading") return;
+        if (isAvatarSpeaking()) return;
         setTranscript(text);
         if (isFinal) {
           setPhase("listening");
         }
       },
-      onSpeechEnd: (fullTranscript: string) => {
-        // Deepgram → /api/chat is the spec'd M2 pipeline for cart
-        // updates in BOTH modes. No gating on Tavus status — Tavus's
-        // tool-call / post-call transcript bridge was over-engineered
-        // and unreliable. The avatar still speaks via its own pipeline;
-        // our chat is just the source of truth for cart mutations, with
-        // Cartesia TTS speaking the response only when Tavus isn't.
+      onSpeechEnd: (fullTranscript: string, language?: string) => {
+        // Deepgram → /api/chat drives cart mutations in both Cartesia
+        // and Tavus modes. In Tavus mode, the avatar has its own
+        // independent voice pipeline — we MUST drop this turn if the
+        // avatar is still talking, because what Deepgram "heard" is
+        // almost certainly the avatar echoing off the iPad speakers.
         const s = ttsRef.current.status;
         if (s === "speaking" || s === "loading") return;
+        if (isAvatarSpeaking()) {
+          console.log(
+            "[Conversation] Dropping transcript — avatar is speaking:",
+            fullTranscript.trim().slice(0, 60)
+          );
+          return;
+        }
         if (fullTranscript.trim()) {
           console.log(
             "[Conversation] Speech ended, sending to chat:",
-            fullTranscript.trim()
+            fullTranscript.trim(),
+            language ? `[${language}]` : ""
           );
           setTranscript("");
-          sendToChatRef.current(fullTranscript.trim());
+          sendToChatRef.current(fullTranscript.trim(), language);
         }
       },
       onError: (err: Error) => {
@@ -376,42 +458,6 @@ export function useConversation(options: UseConversationOptions = {}) {
     setTranscript("");
   }, [vad, deepgram]);
 
-  // External entry point used by useTavusTranscripts to inject user
-  // utterances that came from Tavus's server-side STT (via webhook +
-  // SSE) instead of our Deepgram pipeline. Transcripts are queued and
-  // sent to /api/chat strictly in order — sendToChat aborts any prior
-  // fetch on entry, so running them in parallel would throw away every
-  // turn except the last, which would leave the cart nearly empty.
-  const externalQueueRef = useRef<string[]>([]);
-  const externalProcessingRef = useRef(false);
-  const processExternalQueue = useCallback(async () => {
-    if (externalProcessingRef.current) return;
-    externalProcessingRef.current = true;
-    externalSilentRef.current = true;
-    try {
-      while (externalQueueRef.current.length > 0) {
-        const next = externalQueueRef.current.shift();
-        if (!next) continue;
-        console.log("[Conversation] External transcript:", next);
-        setTranscript("");
-        await sendToChatRef.current(next);
-      }
-    } finally {
-      externalSilentRef.current = false;
-      externalProcessingRef.current = false;
-    }
-  }, []);
-
-  const sendExternalTranscript = useCallback(
-    (text: string) => {
-      const trimmed = text.trim();
-      if (!trimmed) return;
-      externalQueueRef.current.push(trimmed);
-      void processExternalQueue();
-    },
-    [processExternalQueue]
-  );
-
   return {
     phase,
     transcript,
@@ -423,8 +469,9 @@ export function useConversation(options: UseConversationOptions = {}) {
     volume: vad.volume,
     deepgramStatus: deepgram.status,
     ttsStatus: tts.status,
+    detectedLanguage,
+    turnIndex,
     start,
     stop,
-    sendExternalTranscript,
   };
 }

@@ -85,6 +85,9 @@ export const ChatRequestSchema = z.object({
     })
   ),
   cartContext: z.array(OrderItemSchema),
+  // ISO-639-1 language code detected by Deepgram (e.g. "en", "es",
+  // "zh"). Omitted if detection returned nothing on the turn.
+  language: z.string().optional(),
 });
 
 export type Product = z.infer<typeof ProductSchema>;

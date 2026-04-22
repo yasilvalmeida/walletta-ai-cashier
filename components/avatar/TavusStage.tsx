@@ -1,21 +1,70 @@
 "use client";
 
-import { useCallback } from "react";
+import { useCallback, useMemo } from "react";
 
 interface TavusStageProps {
   conversationUrl: string | null;
   status: "idle" | "connecting" | "connected" | "ready" | "error";
   errorMessage: string | null;
-  canMount: boolean;
+  // When false the iframe is still mounted (so the WebRTC handshake can
+  // run in the background and be ready by the time the customer taps
+  // the mic), but rendered opacity-0 + pointer-events-none so the user
+  // never sees a blank Daily.co call screen pre-interaction.
+  visible: boolean;
   onReady: () => void;
   onRetry: () => void;
+}
+
+// Tavus hands us a Daily.co prebuilt room URL. The prebuilt UI ships
+// with a full meeting toolbar (Mute / Turn off / People / Leave),
+// speaker-view toggle, self-view thumbnail, "N people in call" banner,
+// and a pre-join screen — that chrome is exactly what Temur's Apr 22
+// feedback called a "standard web dashboard". Daily prebuilt honors a
+// handful of URL params that suppress these controls; appending them
+// here keeps the iframe visual-only without needing a full Daily JS
+// SDK refactor.
+//
+// Refs:
+// - https://docs.daily.co/reference/daily-js/daily-prebuilt-url
+// - https://docs.tavus.io (conversation_url is a Daily room)
+function applyDailyChromeSuppression(url: string): string {
+  try {
+    const parsed = new URL(url);
+    const params = parsed.searchParams;
+    const ensure = (key: string, value: string) => {
+      if (!params.has(key)) params.set(key, value);
+    };
+    // Hide the bottom meeting toolbar (Mute/Cam/People/Leave).
+    ensure("showLeaveButton", "false");
+    ensure("showFullscreenButton", "false");
+    // Hide the self-preview thumbnail — the customer shouldn't see
+    // themselves in the corner while ordering from the cashier.
+    ensure("showLocalVideo", "false");
+    // Hide the participants-count banner at the top.
+    ensure("showParticipantsBar", "false");
+    // Skip the "Are you ready to join? / device check" pre-join screen
+    // Temur hit on IMG_9299 frame 1. Daily prebuilt calls this the
+    // "hair check" step.
+    ensure("hairCheck", "false");
+    // Focus the replica participant — prevents the speaker-view /
+    // gallery-view toggle from showing.
+    ensure("activeSpeakerMode", "true");
+    // Transparent background so the avatar composites cleanly over
+    // our app's dark shell instead of Daily's default white frame.
+    ensure("bg", "transparent");
+    return parsed.toString();
+  } catch {
+    // If the URL can't be parsed for some reason, fall back to the raw
+    // string — better a working iframe with chrome than no iframe.
+    return url;
+  }
 }
 
 export function TavusStage({
   conversationUrl,
   status,
   errorMessage,
-  canMount,
+  visible,
   onReady,
   onRetry,
 }: TavusStageProps) {
@@ -23,25 +72,32 @@ export function TavusStage({
     onReady();
   }, [onReady]);
 
-  const shouldMount = canMount && !!conversationUrl;
+  const cleanUrl = useMemo(
+    () => (conversationUrl ? applyDailyChromeSuppression(conversationUrl) : null),
+    [conversationUrl]
+  );
+  const shouldMount = !!cleanUrl;
   const isLoading =
     status === "connecting" || (status === "connected" && shouldMount);
   const isReady = status === "ready";
 
   return (
     <div className="absolute inset-0 bg-[#1A1714] overflow-hidden">
-      {shouldMount ? (
+      {/* Gradient placeholder is always in the back so the iframe can
+          fade in over it once the customer engages. */}
+      <div className="absolute inset-0 bg-linear-to-b from-zinc-900 via-zinc-800 to-black" />
+      {shouldMount && (
         <iframe
-          key={conversationUrl}
-          src={conversationUrl ?? undefined}
+          key={cleanUrl}
+          src={cleanUrl ?? undefined}
           allow="camera; microphone; fullscreen; display-capture; autoplay"
           allowFullScreen
-          className="w-full h-full border-0"
+          className={`absolute inset-0 w-full h-full border-0 transition-opacity duration-300 ${
+            visible ? "opacity-100" : "opacity-0 pointer-events-none"
+          }`}
           title="Erewhon Cashier"
           onLoad={handleLoad}
         />
-      ) : (
-        <div className="w-full h-full bg-gradient-to-b from-zinc-900 via-zinc-800 to-black" />
       )}
 
       {isLoading && !isReady && (
@@ -76,31 +132,10 @@ export function TavusStage({
         </div>
       )}
 
-      <div className="absolute top-6 right-6 z-10 flex items-center gap-2 backdrop-blur-xl bg-black/40 rounded-full px-3 py-1.5 border border-white/10">
-        <span
-          className={
-            "w-2 h-2 rounded-full " +
-            (status === "ready"
-              ? "bg-emerald-400"
-              : status === "connected" || status === "connecting"
-                ? "bg-amber-400 animate-pulse"
-                : status === "error"
-                  ? "bg-red-400"
-                  : "bg-white/30")
-          }
-        />
-        <span className="font-sans text-xs text-white/60">
-          {status === "ready"
-            ? "Live"
-            : status === "connected"
-              ? "Loading avatar"
-              : status === "connecting"
-                ? "Connecting"
-                : status === "error"
-                  ? "Offline"
-                  : "Standby"}
-        </span>
-      </div>
+      {/* Internal connection chip removed Apr 22 — AvatarOverlay in
+          CashierApp already surfaces transient connecting/processing/
+          error states; a second always-on chip here was the kind of
+          "dashboard chrome" Temur wanted gone. */}
     </div>
   );
 }

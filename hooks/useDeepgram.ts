@@ -2,6 +2,7 @@
 
 import { useCallback, useRef, useState, useEffect } from "react";
 import { getSharedAudioContext } from "@/lib/audio";
+import { telemetry } from "@/lib/telemetry";
 
 interface DeepgramResult {
   type?: string;
@@ -9,6 +10,7 @@ interface DeepgramResult {
     alternatives: Array<{
       transcript: string;
       confidence: number;
+      languages?: string[];
     }>;
   };
   is_final?: boolean;
@@ -17,7 +19,10 @@ interface DeepgramResult {
 
 interface UseDeepgramOptions {
   onTranscript: (transcript: string, isFinal: boolean) => void;
-  onSpeechEnd: (fullTranscript: string) => void;
+  // language is an ISO-639-1 code ("en", "es", "zh") detected by
+  // Deepgram's multi-language mode, or undefined if no reliable
+  // detection was made on this utterance.
+  onSpeechEnd: (fullTranscript: string, language?: string) => void;
   onError?: (error: Error) => void;
 }
 
@@ -90,11 +95,22 @@ export function useDeepgram(options: UseDeepgramOptions) {
       const { key } = (await res.json()) as { key: string };
 
       const wsUrl = new URL("wss://api.deepgram.com/v1/listen");
-      wsUrl.searchParams.set("model", "nova-2");
-      wsUrl.searchParams.set("language", "en");
+      // Nova-3 + language=multi is Deepgram's supported code-switching
+      // combo (verified against the API Apr 22 — Nova-2 silently
+      // returns empty transcripts for non-English audio). Detected
+      // language lands on `channel.alternatives[0].languages[0]` and
+      // threads through to the LLM + TTS so the reply mirrors the
+      // customer's language. This is what powers Temur's "flawless
+      // multilingual support" ask.
+      wsUrl.searchParams.set("model", "nova-3");
+      wsUrl.searchParams.set("language", "multi");
       wsUrl.searchParams.set("smart_format", "true");
       wsUrl.searchParams.set("interim_results", "true");
-      wsUrl.searchParams.set("endpointing", "800");
+      // 400ms of trailing silence ends an utterance — was 800ms, which
+      // added 400ms of waiting on top of every turn. The speech_final
+      // fallback timer in this file (1500ms) still catches dropped
+      // endpointing events, so we don't risk getting stuck listening.
+      wsUrl.searchParams.set("endpointing", "400");
       wsUrl.searchParams.set("vad_events", "true");
       wsUrl.searchParams.set("encoding", "linear16");
       wsUrl.searchParams.set("sample_rate", "16000");
@@ -144,6 +160,10 @@ export function useDeepgram(options: UseDeepgramOptions) {
         startAudioCapture(stream, ws);
       };
 
+      // Track the most recent detected language across the current
+      // utterance so flushTranscript can attach it to onSpeechEnd.
+      let currentLanguage: string | undefined;
+
       ws.onmessage = (event: MessageEvent) => {
         try {
           const data = JSON.parse(event.data as string) as DeepgramResult;
@@ -151,7 +171,10 @@ export function useDeepgram(options: UseDeepgramOptions) {
           // Skip non-result messages (metadata, etc.)
           if (!data.channel?.alternatives) return;
 
-          const transcript = data.channel.alternatives[0]?.transcript ?? "";
+          const alt = data.channel.alternatives[0];
+          const transcript = alt?.transcript ?? "";
+          const detected = alt?.languages?.[0];
+          if (detected) currentLanguage = detected;
 
           const flushTranscript = () => {
             if (speechTimerRef.current) {
@@ -160,10 +183,18 @@ export function useDeepgram(options: UseDeepgramOptions) {
             }
             const full = transcriptRef.current.trim();
             if (full) {
-              console.log("[Deepgram] Speech complete:", full);
-              optionsRef.current.onSpeechEnd(full);
+              telemetry.mark("speechEnd", { language: currentLanguage });
+              telemetry.mark("sttFinal");
+              console.log(
+                "[Deepgram] Speech complete",
+                currentLanguage ? `(${currentLanguage})` : "",
+                ":",
+                full
+              );
+              optionsRef.current.onSpeechEnd(full, currentLanguage);
             }
             transcriptRef.current = "";
+            currentLanguage = undefined;
           };
 
           // Handle speech_final (may arrive with empty transcript)
