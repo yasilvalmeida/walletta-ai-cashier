@@ -6,7 +6,7 @@ import { useConversation } from "@/hooks/useConversation";
 import { useTavus } from "@/hooks/useTavus";
 import { useTavusTranscripts } from "@/hooks/useTavusTranscripts";
 import { AvatarOverlay } from "@/components/avatar/AvatarOverlay";
-import { TavusStage } from "@/components/avatar/TavusStage";
+import { DailyStage } from "@/components/avatar/DailyStage";
 import { MicButton } from "@/components/ui/MicButton";
 import { BottomSheet } from "@/components/BottomSheet";
 import { LatencyOverlay } from "@/components/debug/LatencyOverlay";
@@ -323,14 +323,14 @@ export function CashierApp() {
           gracefully when the viewport gets shorter (multi-tab Safari). */}
       <div className="relative flex-1 min-h-0 w-full">
         {tavusEnabled ? (
-          <TavusStage
+          <DailyStage
             conversationUrl={tavus.session?.conversationUrl ?? null}
             status={tavus.status}
             errorMessage={tavus.error}
-            // Show the avatar the instant the iframe handshake is
-            // ready, not only after the customer taps the mic. A black
-            // gradient pre-interaction reads as a broken kiosk; a live
-            // face reads as "a window to a real person" (Temur Apr 22).
+            // Show the avatar the instant the handshake is ready, not
+            // only after the customer taps the mic. A black gradient
+            // pre-interaction reads as a broken kiosk; a live face
+            // reads as "a window to a real person" (Temur Apr 22).
             visible={tavus.status === "connected" || tavus.status === "ready"}
             onReady={tavus.markReady}
             onRetry={() => void tavus.connect()}

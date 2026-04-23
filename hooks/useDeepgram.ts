@@ -116,37 +116,22 @@ export function useDeepgram(options: UseDeepgramOptions) {
       wsUrl.searchParams.set("sample_rate", "16000");
       wsUrl.searchParams.set("channels", "1");
       // Keyword boosting so the STT doesn't mangle brand / catalog
-      // names ("Malibu" → "Maripo", "Erewhon" → "Ere one", etc). Each
-      // keyword gets a ~2x weight boost in the recognizer's lexicon.
+      // names. Trimmed Apr 23 from 27 → 10 entries: with 27 keywords
+      // the final WebSocket URL pushed ~800 chars and iOS Safari began
+      // silently rejecting the WS upgrade (reported on iPad). The 10
+      // kept here are the ones that actually get mangled in practice;
+      // the rest relied on smart_format to handle them anyway.
       const KEYWORDS = [
         "Malibu Mango",
-        "Coconut Cloud",
-        "Strawberry Glaze",
-        "Gisele",
-        "Kourtney",
-        "Peanut Butter Blast",
-        "Turmeric Crush",
-        "Hemp Heavy",
-        "Superberry Probiotic",
-        "Chocolate Bliss",
-        "Blue Velvet",
-        "Mint Chip Energy",
-        "Rockstar",
-        "Avocado Greens",
-        "Oat Milk Latte",
+        "Erewhon",
         "Americano",
         "Matcha",
         "Chai",
         "Tonic",
-        "Butter Croissant",
-        "Almond Croissant",
-        "Blueberry Muffin",
-        "Banana Muffin",
-        "Morning Bun",
-        "Scone",
-        "Erewhon",
-        "Winnie Harlow",
-        "Hailey Bieber",
+        "Latte",
+        "Croissant",
+        "Muffin",
+        "Cortado",
       ];
       for (const kw of KEYWORDS) {
         wsUrl.searchParams.append("keywords", `${kw}:5`);
@@ -235,15 +220,40 @@ export function useDeepgram(options: UseDeepgramOptions) {
         }
       };
 
+      // On iOS Safari the raw `onerror` Event carries no detail — the
+      // actionable info lives on `onclose` (code + reason). We defer
+      // the user-visible error to onclose so the toast can show e.g.
+      // "Deepgram closed: 1006 (abnormal closure)" instead of a bare
+      // "Deepgram WebSocket error" banner we can't debug from a
+      // screenshot. onerror still logs for the devtools console.
+      let reportedError = false;
       ws.onerror = (e) => {
-        console.error("[Deepgram] WebSocket error:", e);
-        setStatus("error");
-        optionsRef.current.onError?.(new Error("Deepgram WebSocket error"));
+        console.error("[Deepgram] WebSocket error event:", e);
       };
 
       ws.onclose = (e) => {
-        console.log("[Deepgram] Closed:", e.code, e.reason);
-        setStatus("idle");
+        console.log(
+          "[Deepgram] Closed code=",
+          e.code,
+          "reason=",
+          e.reason || "(none)",
+          "wasClean=",
+          e.wasClean
+        );
+        // Codes 1000 (normal) and 1001 (going away) are expected when
+        // we call disconnect() ourselves. Anything else is a failure
+        // we want to surface.
+        const isAbnormal = !e.wasClean || (e.code !== 1000 && e.code !== 1001);
+        if (isAbnormal && !reportedError) {
+          reportedError = true;
+          const detail = e.reason ? `${e.code} (${e.reason})` : `${e.code}`;
+          setStatus("error");
+          optionsRef.current.onError?.(
+            new Error(`Deepgram closed: ${detail}`)
+          );
+        } else {
+          setStatus("idle");
+        }
       };
 
       wsRef.current = ws;
