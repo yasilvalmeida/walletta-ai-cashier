@@ -12,6 +12,12 @@ type TTSStatus = "idle" | "loading" | "speaking";
 interface UseCartesiaTTSReturn {
   status: TTSStatus;
   enqueue: (text: string, language?: string) => void;
+  // Streaming variant of enqueue: uses /api/tts/stream which proxies
+  // Cartesia's WebSocket TTS and pipes raw PCM chunks as they arrive.
+  // First audio plays ~150ms after speech-end instead of waiting for
+  // the full WAV (~400-800ms). Per-chunk scheduling keeps playback
+  // gap-free. Falls back to the batch enqueue() on stream errors.
+  streamEnqueue: (text: string, language?: string) => void;
   // Push an already-synthesized WAV buffer (e.g. a pre-cached filler)
   // straight onto the playback queue, skipping the /api/tts fetch.
   // Used for sub-400ms-perceived acknowledgment playback at speech-end.
@@ -38,6 +44,12 @@ export function useCartesiaTTS(): UseCartesiaTTSReturn {
   const queueRef = useRef<QueueEntry[]>([]);
   const processingRef = useRef(false);
   const genRef = useRef(0);
+  // Tracks when the tail of the most-recent-scheduled audio ends (in
+  // AudioContext.currentTime units). Used by streamEnqueue to schedule
+  // PCM chunks AFTER any filler still playing in the main queue, so
+  // the streamed real-response audio doesn't overlap the filler.
+  const tailTimeRef = useRef(0);
+  const streamSourcesRef = useRef<Set<AudioBufferSourceNode>>(new Set());
   const unlockedRef = useRef(false);
   const currentDoneRef = useRef<(() => void) | null>(null);
 
@@ -124,6 +136,13 @@ export function useCartesiaTTS(): UseCartesiaTTSReturn {
 
           try {
             source.start();
+            // Keep tailTimeRef current so any streamEnqueue() that
+            // arrives while this buffer is playing schedules its first
+            // PCM chunk AFTER the tail — avoids filler+stream overlap.
+            tailTimeRef.current = Math.max(
+              tailTimeRef.current,
+              ctx.currentTime + audioBuffer.duration
+            );
             telemetry.mark(
               entry.isFiller ? "fillerFirstPlay" : "audioFirstPlay"
             );
@@ -184,6 +203,146 @@ export function useCartesiaTTS(): UseCartesiaTTSReturn {
     [processQueue]
   );
 
+  // Streaming variant: reads raw PCM chunks from /api/tts/stream as
+  // they arrive from Cartesia's WebSocket and schedules each chunk
+  // with precise playhead timing. First audio plays ~150ms after the
+  // request instead of waiting for the full WAV from /api/tts. Plays
+  // AFTER whatever is currently playing in the main queue (filler)
+  // via tailTimeRef bookkeeping. Falls back to batch enqueue() on
+  // any error so the customer always hears a response.
+  const streamEnqueue = useCallback(
+    (text: string, language?: string) => {
+      if (!text.trim()) return;
+      const gen = genRef.current;
+      const ctx = getSharedAudioContext();
+      if (!ctx) return;
+      setStatus((prev) => (prev === "idle" ? "loading" : prev));
+
+      const SAMPLE_RATE = 24000;
+      // Flush accumulated bytes into an AudioBuffer every ~120 ms of
+      // audio — small enough to start the first playback fast, big
+      // enough that setInterval jitter doesn't create audible gaps.
+      const MIN_CHUNK_BYTES = SAMPLE_RATE * 0.12 * 2; // ≈ 5,760 bytes
+      const pending: Uint8Array[] = [];
+      let pendingLen = 0;
+      let firstPlayMarked = false;
+
+      const schedule = (merged: Uint8Array) => {
+        if (genRef.current !== gen) return;
+        // Int16 view over the PCM bytes (little-endian by agreement
+        // with the proxy's pcm_s16le output_format).
+        const int16 = new Int16Array(
+          merged.buffer,
+          merged.byteOffset,
+          Math.floor(merged.byteLength / 2)
+        );
+        if (int16.length === 0) return;
+        const buf = ctx.createBuffer(1, int16.length, SAMPLE_RATE);
+        const f32 = buf.getChannelData(0);
+        for (let i = 0; i < int16.length; i++) {
+          f32[i] = int16[i] / 32768;
+        }
+        const src = ctx.createBufferSource();
+        src.buffer = buf;
+        src.connect(ctx.destination);
+        streamSourcesRef.current.add(src);
+        src.onended = () => {
+          streamSourcesRef.current.delete(src);
+          if (streamSourcesRef.current.size === 0 && !processingRef.current) {
+            setStatus("idle");
+          }
+          try {
+            src.disconnect();
+          } catch {
+            /* already disconnected */
+          }
+        };
+        const startAt = Math.max(ctx.currentTime, tailTimeRef.current);
+        try {
+          src.start(startAt);
+        } catch (err) {
+          console.warn("[TTS stream] source.start failed:", err);
+          return;
+        }
+        tailTimeRef.current = startAt + buf.duration;
+        if (!firstPlayMarked) {
+          firstPlayMarked = true;
+          telemetry.mark("audioFirstPlay");
+        }
+        setStatus("speaking");
+      };
+
+      const run = async () => {
+        try {
+          const response = await fetch("/api/tts/stream", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ text, language }),
+          });
+          if (!response.ok || !response.body) {
+            throw new Error(`stream ${response.status}`);
+          }
+          telemetry.mark("ttsFirstByte");
+          const reader = response.body.getReader();
+          await resumeSharedAudioContext();
+          while (true) {
+            const { done, value } = await reader.read();
+            if (done || genRef.current !== gen) break;
+            if (!value || value.byteLength === 0) continue;
+            pending.push(value);
+            pendingLen += value.byteLength;
+            if (pendingLen >= MIN_CHUNK_BYTES) {
+              const merged = new Uint8Array(pendingLen);
+              let offset = 0;
+              for (const p of pending) {
+                merged.set(p, offset);
+                offset += p.byteLength;
+              }
+              pending.length = 0;
+              pendingLen = 0;
+              schedule(merged);
+            }
+          }
+          // Flush trailing <120ms remainder.
+          if (pendingLen > 0 && genRef.current === gen) {
+            const merged = new Uint8Array(pendingLen);
+            let offset = 0;
+            for (const p of pending) {
+              merged.set(p, offset);
+              offset += p.byteLength;
+            }
+            schedule(merged);
+          }
+        } catch (err) {
+          console.warn(
+            "[TTS stream] failed, falling back to batch enqueue:",
+            err
+          );
+          // Fallback: hit the old batch route so the customer still
+          // hears a response even if the stream proxy hiccups.
+          if (genRef.current !== gen) return;
+          const bufferPromise = fetch("/api/tts", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ text, language }),
+          })
+            .then((res) => (res.ok ? res.arrayBuffer() : null))
+            .catch(() => null);
+          queueRef.current.push({
+            buffer: bufferPromise,
+            isFiller: false,
+          });
+          if (!processingRef.current) {
+            void processQueue(gen);
+          }
+        }
+      };
+
+      void run();
+    },
+    [processQueue]
+  );
+
   const enqueueBuffer = useCallback(
     (buffer: ArrayBuffer) => {
       const gen = genRef.current;
@@ -239,6 +398,24 @@ export function useCartesiaTTS(): UseCartesiaTTSReturn {
       currentDoneRef.current();
     }
 
+    // Cancel any streaming PCM chunks mid-playback (barge-in during a
+    // streamed response). The in-flight fetch reader sees genRef change
+    // and exits its loop.
+    for (const src of streamSourcesRef.current) {
+      try {
+        src.stop();
+      } catch {
+        /* already stopped */
+      }
+      try {
+        src.disconnect();
+      } catch {
+        /* already disconnected */
+      }
+    }
+    streamSourcesRef.current.clear();
+    tailTimeRef.current = 0;
+
     setStatus("idle");
   }, []);
 
@@ -269,5 +446,13 @@ export function useCartesiaTTS(): UseCartesiaTTSReturn {
       });
   }, []);
 
-  return { status, enqueue, enqueueBuffer, preloadBuffer, stop, unlock };
+  return {
+    status,
+    enqueue,
+    streamEnqueue,
+    enqueueBuffer,
+    preloadBuffer,
+    stop,
+    unlock,
+  };
 }

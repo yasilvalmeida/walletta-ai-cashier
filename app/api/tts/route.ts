@@ -36,6 +36,12 @@ interface TTSRequestBody {
 }
 
 export async function POST(request: Request) {
+  // Page-load warmup fast-path — `?warmup=1` primes the Node VM
+  // without hitting Cartesia or the devtools console.
+  if (new URL(request.url).searchParams.get("warmup") === "1") {
+    return new Response(null, { status: 204 });
+  }
+
   const body = (await request.json()) as TTSRequestBody;
   const text = body.text;
 

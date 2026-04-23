@@ -102,6 +102,73 @@ describe("/api/tts route", () => {
     expect(data.error).toContain("Network unreachable");
   });
 
+  it("ignores an empty CARTESIA_VOICE_ID_<LANG> env and falls back (line 29 branch)", async () => {
+    vi.stubEnv("CARTESIA_VOICE_ID_DE", "   ");
+    const fakeWav = new ArrayBuffer(4);
+    mockFetch.mockResolvedValueOnce(new Response(fakeWav, { status: 200 }));
+    await POST(makeRequest({ text: "hallo", language: "de" }));
+    const body = JSON.parse(
+      (mockFetch.mock.calls[0] as [string, RequestInit])[1].body as string
+    );
+    // Since the override was whitespace-only, the default voice kicks in.
+    expect(body.voice.id).not.toBe("   ");
+  });
+
+  it("short-circuits ?warmup=1 to 204 without hitting Cartesia", async () => {
+    const res = await POST(
+      new Request("http://localhost/api/tts?warmup=1", { method: "POST" })
+    );
+    expect(res.status).toBe(204);
+    expect(mockFetch).not.toHaveBeenCalled();
+  });
+
+  it("returns 500 when CARTESIA_API_KEY is missing", async () => {
+    vi.stubEnv("CARTESIA_API_KEY", "");
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    const res = await POST(makeRequest({ text: "hello" }));
+    expect(res.status).toBe(500);
+    vi.stubEnv("CARTESIA_API_KEY", "test-key-123");
+  });
+
+  it("falls back to English for unsupported language codes", async () => {
+    const fakeWav = new ArrayBuffer(4);
+    mockFetch.mockResolvedValueOnce(
+      new Response(fakeWav, { status: 200 })
+    );
+    await POST(makeRequest({ text: "hola", language: "xx" }));
+    const body = JSON.parse(
+      (mockFetch.mock.calls[0] as [string, RequestInit])[1].body as string
+    );
+    expect(body.language).toBe("en");
+  });
+
+  it("uses a supported non-English language when provided", async () => {
+    const fakeWav = new ArrayBuffer(4);
+    mockFetch.mockResolvedValueOnce(
+      new Response(fakeWav, { status: 200 })
+    );
+    await POST(makeRequest({ text: "bonjour", language: "fr" }));
+    const body = JSON.parse(
+      (mockFetch.mock.calls[0] as [string, RequestInit])[1].body as string
+    );
+    expect(body.language).toBe("fr");
+  });
+
+  it("prefers CARTESIA_VOICE_ID_<LANG> when set for the given language", async () => {
+    vi.stubEnv("CARTESIA_VOICE_ID_ES", "voice-spanish-123");
+    const fakeWav = new ArrayBuffer(4);
+    mockFetch.mockResolvedValueOnce(
+      new Response(fakeWav, { status: 200 })
+    );
+    await POST(makeRequest({ text: "hola", language: "es" }));
+    const body = JSON.parse(
+      (mockFetch.mock.calls[0] as [string, RequestInit])[1].body as string
+    );
+    expect(body.voice.id).toBe("voice-spanish-123");
+    vi.unstubAllEnvs();
+    vi.stubEnv("CARTESIA_API_KEY", "test-key-123");
+  });
+
   it("trims whitespace from input text", async () => {
     const fakeWav = new ArrayBuffer(100);
     mockFetch.mockResolvedValueOnce(

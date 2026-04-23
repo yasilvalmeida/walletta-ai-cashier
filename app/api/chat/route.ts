@@ -1,15 +1,12 @@
-import OpenAI from "openai";
 import { ChatRequestSchema } from "@/lib/schemas";
 import { getAllProducts } from "@/lib/catalog";
+import { getLLM } from "@/lib/llm";
+import { isPureFinalize } from "@/lib/finalize";
 import type { Modifier, OrderItem, Product } from "@/lib/schemas";
 import type {
   ChatCompletionTool,
   ChatCompletionMessageParam,
 } from "openai/resources/chat/completions";
-
-const openai = new OpenAI({
-  apiKey: process.env.OPENAI_API_KEY,
-});
 
 const tools: ChatCompletionTool[] = [
   {
@@ -221,8 +218,20 @@ ${cartSummary}
 
 export async function POST(request: Request) {
   try {
-    const body = await request.json();
-    const parsed = ChatRequestSchema.parse(body);
+    // Page-load warmup fast-path — `?warmup=1` primes the Node VM
+    // without hitting OpenAI or the devtools console.
+    if (new URL(request.url).searchParams.get("warmup") === "1") {
+      return new Response(null, { status: 204 });
+    }
+    const body = await request.json().catch(() => null);
+    const parseResult = ChatRequestSchema.safeParse(body);
+    if (!parseResult.success) {
+      return Response.json(
+        { error: parseResult.error.message },
+        { status: 400 }
+      );
+    }
+    const parsed = parseResult.data;
 
     const systemMessage: ChatCompletionMessageParam = {
       role: "system",
@@ -269,16 +278,8 @@ export async function POST(request: Request) {
         userText
       ) ||
       /\bno[,\s]+(?:the|that|not)\b/.test(userText);
-    const isPureFinalize =
-      userText === "done" ||
-      userText === "that's all" ||
-      userText === "that is all" ||
-      userText === "no, that's all." ||
-      userText === "no, that's all" ||
-      userText === "checkout" ||
-      userText === "no. that's all." ||
-      userText === "pay";
-    const forceAdd = mentionsItem && !isPureFinalize && !isRemoveOrCorrection;
+    const forceAdd =
+      mentionsItem && !isPureFinalize(userText) && !isRemoveOrCorrection;
     console.log(
       "[Chat] forceAdd =",
       forceAdd,
@@ -288,8 +289,10 @@ export async function POST(request: Request) {
       userText.slice(0, 80)
     );
 
-    const stream = await openai.chat.completions.create({
-      model: "gpt-4o",
+    const llm = getLLM();
+    console.log("[Chat] provider=", llm.provider, "model=", llm.model);
+    const stream = await llm.client.chat.completions.create({
+      model: llm.model,
       messages,
       tools,
       stream: true,
@@ -427,8 +430,8 @@ export async function POST(request: Request) {
                 content: JSON.stringify({ success: true }),
               }));
 
-            const followUp = await openai.chat.completions.create({
-              model: "gpt-4o",
+            const followUp = await llm.client.chat.completions.create({
+              model: llm.model,
               messages: [...messages, assistantMsg, ...toolResults],
               stream: true,
             });
