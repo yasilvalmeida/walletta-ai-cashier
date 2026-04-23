@@ -228,7 +228,18 @@ export function useConversation(options: UseConversationOptions = {}) {
                 .trim();
               sentenceBuffer = sentenceBuffer.slice(boundaryIdx + 2);
               if (chunk && cartesiaEnabledRef.current) {
-                ttsRef.current.enqueue(chunk, activeLanguage);
+                // Default to streaming path — ~150ms to first audio vs
+                // ~600ms for batch. Client can force the old batch
+                // path with ?tts=batch for A/B testing.
+                const preferBatch =
+                  typeof window !== "undefined" &&
+                  new URLSearchParams(window.location.search).get("tts") ===
+                    "batch";
+                if (preferBatch) {
+                  ttsRef.current.enqueue(chunk, activeLanguage);
+                } else {
+                  ttsRef.current.streamEnqueue(chunk, activeLanguage);
+                }
               }
             }
           },
@@ -267,7 +278,15 @@ export function useConversation(options: UseConversationOptions = {}) {
 
             const remaining = sentenceBuffer.trim();
             if (remaining && cartesiaEnabledRef.current) {
-              ttsRef.current.enqueue(remaining, activeLanguage);
+              const preferBatch =
+                typeof window !== "undefined" &&
+                new URLSearchParams(window.location.search).get("tts") ===
+                  "batch";
+              if (preferBatch) {
+                ttsRef.current.enqueue(remaining, activeLanguage);
+              } else {
+                ttsRef.current.streamEnqueue(remaining, activeLanguage);
+              }
             }
             sentenceBuffer = "";
 
