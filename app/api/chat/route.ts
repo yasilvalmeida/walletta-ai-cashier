@@ -1,15 +1,11 @@
-import OpenAI from "openai";
 import { ChatRequestSchema } from "@/lib/schemas";
 import { getAllProducts } from "@/lib/catalog";
+import { getLLM } from "@/lib/llm";
 import type { Modifier, OrderItem, Product } from "@/lib/schemas";
 import type {
   ChatCompletionTool,
   ChatCompletionMessageParam,
 } from "openai/resources/chat/completions";
-
-const openai = new OpenAI({
-  apiKey: process.env.OPENAI_API_KEY,
-});
 
 const tools: ChatCompletionTool[] = [
   {
@@ -288,8 +284,10 @@ export async function POST(request: Request) {
       userText.slice(0, 80)
     );
 
-    const stream = await openai.chat.completions.create({
-      model: "gpt-4o",
+    const llm = getLLM();
+    console.log("[Chat] provider=", llm.provider, "model=", llm.model);
+    const stream = await llm.client.chat.completions.create({
+      model: llm.model,
       messages,
       tools,
       stream: true,
@@ -427,8 +425,8 @@ export async function POST(request: Request) {
                 content: JSON.stringify({ success: true }),
               }));
 
-            const followUp = await openai.chat.completions.create({
-              model: "gpt-4o",
+            const followUp = await llm.client.chat.completions.create({
+              model: llm.model,
               messages: [...messages, assistantMsg, ...toolResults],
               stream: true,
             });
