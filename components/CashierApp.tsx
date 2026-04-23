@@ -75,21 +75,17 @@ export function CashierApp() {
   });
 
   // Pre-warm the Vercel serverless routes on mount so the first real
-  // request doesn't eat the Node cold-start (~200-500ms each). Both
-  // payloads fail schema validation deliberately — the route returns
-  // 400 fast without calling OpenAI / Cartesia, but the Node VM is
-  // primed for the next real call.
+  // request doesn't eat the Node cold-start (~200-500ms each). The
+  // `?warmup=1` query short-circuits each route to a 204 before any
+  // body parsing / OpenAI / Cartesia calls — primes the Node VM
+  // without polluting the devtools console with deliberate 4xx.
   useEffect(() => {
-    const warmChat = fetch("/api/chat", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: "{}",
-    }).catch(() => {});
-    const warmTts = fetch("/api/tts", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: "{}",
-    }).catch(() => {});
+    const warmChat = fetch("/api/chat?warmup=1", { method: "POST" }).catch(
+      () => {}
+    );
+    const warmTts = fetch("/api/tts?warmup=1", { method: "POST" }).catch(
+      () => {}
+    );
     void Promise.allSettled([warmChat, warmTts]);
   }, []);
 

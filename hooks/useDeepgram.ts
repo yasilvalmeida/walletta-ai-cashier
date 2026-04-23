@@ -115,13 +115,12 @@ export function useDeepgram(options: UseDeepgramOptions) {
       wsUrl.searchParams.set("encoding", "linear16");
       wsUrl.searchParams.set("sample_rate", "16000");
       wsUrl.searchParams.set("channels", "1");
-      // Keyword boosting so the STT doesn't mangle brand / catalog
-      // names. Trimmed Apr 23 from 27 → 10 entries: with 27 keywords
-      // the final WebSocket URL pushed ~800 chars and iOS Safari began
-      // silently rejecting the WS upgrade (reported on iPad). The 10
-      // kept here are the ones that actually get mangled in practice;
-      // the rest relied on smart_format to handle them anyway.
-      const KEYWORDS = [
+      // Keyterm prompting so the STT doesn't mangle brand / catalog
+      // names. Nova-3 replaced Nova-2's `keywords=<word>:<boost>` with
+      // `keyterm=<word>` — passing `keywords` to Nova-3 makes Deepgram
+      // reject the WebSocket upgrade (1006 on the client, no reason
+      // frame). Kept to 10 entries for URL-length safety on iOS Safari.
+      const KEYTERMS = [
         "Malibu Mango",
         "Erewhon",
         "Americano",
@@ -133,8 +132,8 @@ export function useDeepgram(options: UseDeepgramOptions) {
         "Muffin",
         "Cortado",
       ];
-      for (const kw of KEYWORDS) {
-        wsUrl.searchParams.append("keywords", `${kw}:5`);
+      for (const kt of KEYTERMS) {
+        wsUrl.searchParams.append("keyterm", kt);
       }
 
       const ws = new WebSocket(wsUrl.toString(), ["token", key]);
@@ -225,14 +224,19 @@ export function useDeepgram(options: UseDeepgramOptions) {
       // the user-visible error to onclose so the toast can show e.g.
       // "Deepgram closed: 1006 (abnormal closure)" instead of a bare
       // "Deepgram WebSocket error" banner we can't debug from a
-      // screenshot. onerror still logs for the devtools console.
+      // screenshot. onerror is logged at `debug` level on purpose —
+      // `console.error` triggers Next.js's dev overlay with an empty
+      // `{}` payload (nothing to debug from), and the close log below
+      // has the real information.
       let reportedError = false;
       ws.onerror = (e) => {
-        console.error("[Deepgram] WebSocket error event:", e);
+        console.debug("[Deepgram] WebSocket error event (empty on Safari):", e);
       };
 
       ws.onclose = (e) => {
-        console.log(
+        const isAbnormal = !e.wasClean || (e.code !== 1000 && e.code !== 1001);
+        const logFn = isAbnormal ? console.error : console.log;
+        logFn(
           "[Deepgram] Closed code=",
           e.code,
           "reason=",
@@ -243,7 +247,6 @@ export function useDeepgram(options: UseDeepgramOptions) {
         // Codes 1000 (normal) and 1001 (going away) are expected when
         // we call disconnect() ourselves. Anything else is a failure
         // we want to surface.
-        const isAbnormal = !e.wasClean || (e.code !== 1000 && e.code !== 1001);
         if (isAbnormal && !reportedError) {
           reportedError = true;
           const detail = e.reason ? `${e.code} (${e.reason})` : `${e.code}`;

@@ -9,6 +9,7 @@ import { parseSSEStream } from "@/lib/sse";
 import { telemetry } from "@/lib/telemetry";
 import { isAvatarSpeaking } from "@/lib/tavusPresence";
 import { fillersFor, pickFiller } from "@/lib/fillers";
+import { isFinalizeSpeech } from "@/lib/finalize";
 import type { OrderItem, SSEEvent } from "@/lib/schemas";
 
 type ConversationPhase =
@@ -293,17 +294,7 @@ export function useConversation(options: UseConversationOptions = {}) {
             // Deferred to onDone so any cart_action events from this
             // turn have already applied to the store before we snapshot
             // the receipt. Also guarded against empty carts.
-            const lower = userMessage.toLowerCase();
-            const isFinalize =
-              lower.includes("checkout") ||
-              lower.includes("pay") ||
-              lower.includes("that's all") ||
-              lower.includes("that is all") ||
-              lower === "done" ||
-              lower.endsWith(" done") ||
-              lower.startsWith("i'm done") ||
-              lower.startsWith("i am done");
-            if (isFinalize) {
+            if (isFinalizeSpeech(userMessage)) {
               const cartHasItems =
                 useCartStore.getState().items.length > 0;
               if (cartHasItems) {

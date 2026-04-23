@@ -1,6 +1,11 @@
 import { NextResponse } from "next/server";
+import { endAllActiveConversations, isMaxConcurrentError } from "@/lib/tavus";
 
 const TAVUS_API = "https://tavusapi.com/v2/conversations";
+// After we end conversations, Tavus's concurrency counter lags the
+// /v2/conversations list by ~1s. Retrying the create POST immediately
+// reproduces the same 400, so we pause briefly before the second attempt.
+const MAX_CONCURRENT_RETRY_DELAY_MS = 1500;
 const DEFAULT_REPLICA_ID = "r5f0577fc829";
 // Erewhon Cashier persona (no tools). Tavus delivers the full
 // conversation transcript at session end via
@@ -9,8 +14,6 @@ const DEFAULT_REPLICA_ID = "r5f0577fc829";
 // tool-enabled variant (p8320500b2f2) seems to suppress user turns
 // in the final transcript, so we stay on this one.
 const DEFAULT_PERSONA_ID = "pe2d1f72ee4b";
-
-const CONVERSATIONAL_CONTEXT = `You are Jordan, the Erewhon Market cashier AI. Warm, premium, and efficient. Help customers order smoothies, coffee & tonics, and pastries. Ask for cup sizes on coffee drinks, offer milk/shot/syrup modifiers, and pair a pastry with coffee orders when appropriate. Keep responses to two sentences max. Confirm each item as you add it.`;
 
 interface TavusSessionResponse {
   conversation_id: string;
@@ -93,21 +96,48 @@ export async function POST(request: Request) {
       console.log("[Tavus] callback_url:", callbackUrl);
     }
 
-    const response = await fetch(TAVUS_API, {
-      method: "POST",
-      headers: {
-        "x-api-key": apiKey,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify(payload),
-    });
+    const createConversation = () =>
+      fetch(TAVUS_API, {
+        method: "POST",
+        headers: {
+          "x-api-key": apiKey,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify(payload),
+      });
+
+    let response = await createConversation();
+    let failureText = "";
 
     if (!response.ok) {
-      const errorText = await response.text();
-      return NextResponse.json(
-        { error: `Tavus API error: ${errorText}` },
-        { status: response.status }
-      );
+      failureText = await response.text();
+      if (isMaxConcurrentError(response.status, failureText)) {
+        console.warn(
+          "[Tavus] max concurrent reached, ending active sessions and retrying"
+        );
+        const cleanup = await endAllActiveConversations(apiKey);
+        console.warn(
+          "[Tavus] cleanup scanned=",
+          cleanup.scanned,
+          "ended=",
+          cleanup.ended
+        );
+        await new Promise((r) => setTimeout(r, MAX_CONCURRENT_RETRY_DELAY_MS));
+        response = await createConversation();
+        failureText = response.ok ? "" : await response.text();
+      }
+
+      if (!response.ok) {
+        console.error(
+          "[Tavus] session create failed:",
+          response.status,
+          failureText
+        );
+        return NextResponse.json(
+          { error: `Tavus API error: ${failureText}` },
+          { status: response.status }
+        );
+      }
     }
 
     const data = (await response.json()) as TavusSessionResponse;

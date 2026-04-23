@@ -252,26 +252,44 @@ export function DailyStage({
         </div>
       )}
 
-      {status === "error" && (
-        <div className="absolute inset-0 flex items-center justify-center">
-          <div className="flex flex-col items-center gap-3 text-center px-6">
-            <p className="font-display text-lg text-white/80">
-              Avatar unavailable
-            </p>
-            {errorMessage && (
-              <p className="font-sans text-xs text-white/50 max-w-sm">
-                {errorMessage}
+      {status === "error" && (() => {
+        // Out-of-credits is a soft failure — the app auto-falls back
+        // to Cartesia voice so the pipeline still works. Render a
+        // smaller "voice-only" notice instead of the big "unavailable"
+        // banner to keep the kiosk from looking broken.
+        const isCreditsExhausted =
+          !!errorMessage &&
+          /out of conversational credits|402/i.test(errorMessage);
+        if (isCreditsExhausted) {
+          return (
+            <div className="absolute inset-x-0 top-1/2 -translate-y-1/2 flex items-center justify-center pointer-events-none">
+              <p className="font-sans text-xs text-white/50 px-6 text-center max-w-sm">
+                Voice-only mode — avatar paused.
               </p>
-            )}
-            <button
-              onClick={onRetry}
-              className="mt-2 px-4 py-2 bg-white/10 hover:bg-white/20 border border-white/20 rounded-full font-sans text-xs text-white/80 transition-colors"
-            >
-              Retry
-            </button>
+            </div>
+          );
+        }
+        return (
+          <div className="absolute inset-0 flex items-center justify-center">
+            <div className="flex flex-col items-center gap-3 text-center px-6">
+              <p className="font-display text-lg text-white/80">
+                Avatar unavailable
+              </p>
+              {errorMessage && (
+                <p className="font-sans text-xs text-white/50 max-w-sm">
+                  {errorMessage}
+                </p>
+              )}
+              <button
+                onClick={onRetry}
+                className="mt-2 px-4 py-2 bg-white/10 hover:bg-white/20 border border-white/20 rounded-full font-sans text-xs text-white/80 transition-colors"
+              >
+                Retry
+              </button>
+            </div>
           </div>
-        </div>
-      )}
+        );
+      })()}
     </div>
   );
 }
