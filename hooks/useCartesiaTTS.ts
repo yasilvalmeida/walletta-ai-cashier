@@ -226,16 +226,27 @@ export function useCartesiaTTS(): UseCartesiaTTSReturn {
       const pending: Uint8Array[] = [];
       let pendingLen = 0;
       let firstPlayMarked = false;
+      // Carry any trailing odd byte across flushes. Cartesia streams
+      // pcm_s16le (two bytes per sample) but HTTP reads can split a
+      // sample across two chunks. Truncating the orphan byte at flush
+      // time (the old Math.floor byteLength/2 behaviour) caused a DC
+      // step at every boundary and audible clicks on iOS Safari.
+      let carry: Uint8Array | null = null;
 
       const schedule = (merged: Uint8Array) => {
         if (genRef.current !== gen) return;
-        // Int16 view over the PCM bytes (little-endian by agreement
-        // with the proxy's pcm_s16le output_format).
-        const int16 = new Int16Array(
-          merged.buffer,
-          merged.byteOffset,
-          Math.floor(merged.byteLength / 2)
-        );
+        // Copy into a fresh, 2-byte-aligned backing store. Uint8Arrays
+        // from a ReadableStream are not guaranteed to start on an even
+        // byteOffset, and `new Int16Array(buf, offset, length)` throws
+        // `RangeError` on unaligned offsets (WebKit) or silently reads
+        // misaligned bytes as garbled samples (some engines). The
+        // copy also guarantees an even byteLength so the view covers
+        // exactly `merged.byteLength / 2` samples with no truncation.
+        const evenLen = merged.byteLength & ~1; // clear the low bit
+        if (evenLen === 0) return;
+        const aligned = new Uint8Array(evenLen);
+        aligned.set(merged.subarray(0, evenLen));
+        const int16 = new Int16Array(aligned.buffer);
         if (int16.length === 0) return;
         const buf = ctx.createBuffer(1, int16.length, SAMPLE_RATE);
         const f32 = buf.getChannelData(0);
@@ -292,21 +303,43 @@ export function useCartesiaTTS(): UseCartesiaTTSReturn {
             pending.push(value);
             pendingLen += value.byteLength;
             if (pendingLen >= MIN_CHUNK_BYTES) {
-              const merged = new Uint8Array(pendingLen);
+              // If the carry from the previous flush exists, prepend
+              // it so its byte lands as the low byte of the next
+              // sample rather than getting orphaned.
+              const totalLen = pendingLen + (carry?.byteLength ?? 0);
+              const merged = new Uint8Array(totalLen);
               let offset = 0;
+              if (carry) {
+                merged.set(carry, offset);
+                offset += carry.byteLength;
+                carry = null;
+              }
               for (const p of pending) {
                 merged.set(p, offset);
                 offset += p.byteLength;
               }
               pending.length = 0;
               pendingLen = 0;
-              schedule(merged);
+              // Carry the trailing odd byte forward if any so schedule()
+              // only ever sees an even-length buffer.
+              if ((merged.byteLength & 1) === 1) {
+                carry = merged.slice(merged.byteLength - 1);
+                schedule(merged.subarray(0, merged.byteLength - 1));
+              } else {
+                schedule(merged);
+              }
             }
           }
-          // Flush trailing <120ms remainder.
-          if (pendingLen > 0 && genRef.current === gen) {
-            const merged = new Uint8Array(pendingLen);
+          // Flush trailing <120ms remainder (plus any carry).
+          const tailLen = pendingLen + (carry?.byteLength ?? 0);
+          if (tailLen > 0 && genRef.current === gen) {
+            const merged = new Uint8Array(tailLen);
             let offset = 0;
+            if (carry) {
+              merged.set(carry, offset);
+              offset += carry.byteLength;
+              carry = null;
+            }
             for (const p of pending) {
               merged.set(p, offset);
               offset += p.byteLength;
