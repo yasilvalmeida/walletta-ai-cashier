@@ -162,11 +162,19 @@ export function useConversation(options: UseConversationOptions = {}) {
       // Sub-400ms perceived: fire a pre-cached filler the instant we
       // receive the transcript. Plays within ~50ms via the TTS queue;
       // the real LLM response queues behind it and picks up naturally
-      // when tokens start streaming. Cartesia-only — in Tavus mode the
-      // avatar owns the voice and layering a second voice would clash.
-      if (cartesiaEnabledRef.current) {
-        playFillerForLanguage(activeLanguage);
-      }
+      // when tokens start streaming.
+      //
+      // In Cartesia mode this masks OUR LLM→TTS pipeline (~800-1200ms
+      // real → <50ms perceived). In Tavus mode the avatar has its own
+      // STT/LLM/TTS pipeline that takes ~1s — we overlay the same
+      // filler audio even though the replica's mouth isn't lip-syncing
+      // it (Tavus backend only lip-syncs to audio IT generates). The
+      // customer hears the acknowledgment instantly and sees the
+      // replica's mouth start ~400-600ms later when Tavus catches up;
+      // the perceived gap to ANY audible response collapses to <100ms.
+      // The filler is <500ms long so it naturally clears before the
+      // replica's response lands in most turns.
+      playFillerForLanguage(activeLanguage);
 
       messagesRef.current.push({ role: "user", content: userMessage });
 

@@ -110,10 +110,13 @@ export function DailyStage({
       readySignaledRef.current = false;
 
       const call = DailyIframe.createCallObject({
-        // No video/audio published from our side — we're a passive
-        // observer of the replica's tracks. Deepgram captures the mic
-        // on the browser side independently.
-        audioSource: false,
+        // Publish the user's mic into the Daily room: Tavus's backend
+        // needs to hear the customer to run its own STT/LLM/TTS that
+        // drives the replica. We do NOT publish video (camera). Daily
+        // and Deepgram both call getUserMedia; on iOS Safari they
+        // share the underlying track, so the mic permission prompt
+        // only appears once.
+        audioSource: true,
         videoSource: false,
         subscribeToTracksAutomatically: true,
       });
