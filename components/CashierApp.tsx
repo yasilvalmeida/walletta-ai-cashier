@@ -5,6 +5,7 @@ import { motion, AnimatePresence } from "framer-motion";
 import { useConversation } from "@/hooks/useConversation";
 import { useTavus } from "@/hooks/useTavus";
 import { useTavusTranscripts } from "@/hooks/useTavusTranscripts";
+import { useSessionIdleTimeout } from "@/hooks/useSessionIdleTimeout";
 import { AvatarOverlay } from "@/components/avatar/AvatarOverlay";
 import { DailyStage } from "@/components/avatar/DailyStage";
 import { MicButton } from "@/components/ui/MicButton";
@@ -114,10 +115,34 @@ export function CashierApp() {
     () => (tavusConversationId ? [tavusConversationId] : []),
     [tavusConversationId]
   );
+  // Idle disconnect — Temur reported being billed 271min for 15min of
+  // testing on 2026-04-24. The hook disconnects after 3min of no
+  // voice activity AND immediately when the tab goes background. We
+  // reset on replica transcripts (below) and on customer turns
+  // (turnIndex effect further down). `active` is gated on session
+  // state so the timer doesn't run before Tavus is actually billing.
+  const idle = useSessionIdleTimeout({
+    active: tavus.status === "ready" || tavus.status === "connected",
+    onTimeout: tavus.disconnect,
+  });
+
   useTavusTranscripts({
     conversationIds: tavusConversationIds,
-    onReplicaTranscript: () => markAvatarSpeech(),
+    onReplicaTranscript: () => {
+      markAvatarSpeech();
+      // Replica speech counts as activity — extend the idle clock.
+      // Without this, a 60s pitch or long response would trip the
+      // 3min disconnect halfway through the next customer pause.
+      idle.resetIdle();
+    },
   });
+
+  // Customer speech also extends the idle clock. `turnIndex` bumps on
+  // each finalised Deepgram utterance, so this effect fires on every
+  // real user turn without coupling to the internal Deepgram callbacks.
+  useEffect(() => {
+    if (conversation.turnIndex > 0) idle.resetIdle();
+  }, [conversation.turnIndex, idle]);
 
   // Cart is fed by our Deepgram → /api/chat pipeline in BOTH modes.
   // No Tavus-side bridge — spec'd M2 architecture: user speech →
