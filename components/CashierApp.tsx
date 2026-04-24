@@ -1,12 +1,11 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { useConversation } from "@/hooks/useConversation";
 import { useTavus } from "@/hooks/useTavus";
 import { useTavusTranscripts } from "@/hooks/useTavusTranscripts";
 import { useSessionIdleTimeout } from "@/hooks/useSessionIdleTimeout";
-import { AvatarOverlay } from "@/components/avatar/AvatarOverlay";
 import {
   DailyStage,
   type DailyStageHandle,
@@ -15,7 +14,6 @@ import { hasPitchText, PITCH_TEXT, PITCH_DURATION_MS } from "@/lib/pitch";
 import { MicButton } from "@/components/ui/MicButton";
 import { BottomSheet } from "@/components/BottomSheet";
 import { LatencyOverlay } from "@/components/debug/LatencyOverlay";
-import { getOverlayStatus } from "@/lib/overlay";
 import { markAvatarSpeech } from "@/lib/tavusPresence";
 import { useCartStore } from "@/store/cartStore";
 
@@ -266,19 +264,7 @@ export function CashierApp() {
       void tavus.connect();
     }
   }, [receiptSnapshot, tavusEnabled, tavus]);
-  const overlayStatus = getOverlayStatus(
-    conversation.phase,
-    conversation.deepgramStatus
-  );
-
-  const [hasInteracted, setHasInteracted] = useState(false);
-  const interactedRef = useRef(false);
-
   const handleMicToggle = useCallback(() => {
-    if (!interactedRef.current) {
-      interactedRef.current = true;
-      setHasInteracted(true);
-    }
     if (conversation.isListening) {
       conversation.stop();
     } else {
@@ -286,47 +272,13 @@ export function CashierApp() {
     }
   }, [conversation]);
 
-  // Daily (and therefore Tavus) posts a "left-meeting" message from inside
-  // the iframe when the user hangs up. Listen for it and tear the session
-  // down so the app falls back to Cartesia and the Rejoin button shows.
-  const tavusDisconnectRef = useRef(tavus.disconnect);
-  tavusDisconnectRef.current = tavus.disconnect;
-  useEffect(() => {
-    if (typeof window === "undefined") return;
-    const handler = (e: MessageEvent) => {
-      const data = e.data;
-      if (!data || typeof data !== "object") return;
-      const rec = data as Record<string, unknown>;
-      const signals = [rec.action, rec.event, rec.type].filter(
-        (v) => typeof v === "string"
-      ) as string[];
-      if (
-        signals.some(
-          (s) =>
-            s === "left-meeting" ||
-            s === "meeting-ended" ||
-            s === "call-ended" ||
-            s === "participant-left"
-        )
-      ) {
-        tavusDisconnectRef.current();
-      }
-    };
-    window.addEventListener("message", handler);
-    return () => window.removeEventListener("message", handler);
-  }, []);
-
-  const handleTavusToggle = useCallback(() => {
-    if (tavus.status === "ready" || tavus.status === "connected") {
-      tavus.disconnect();
-    } else {
-      if (!interactedRef.current) {
-        interactedRef.current = true;
-        setHasInteracted(true);
-      }
-      void tavus.connect();
-    }
-  }, [tavus]);
+  // (Removed) the vestigial window `message` listener that disconnected on
+  // "left-meeting" / "participant-left". It dated from the iframe-embedded
+  // Daily prebuilt era; with the headless createCallObject in DailyStage,
+  // call lifecycle events arrive on call.on(...) (scoped to our call) — the
+  // window listener was catching daily-js internal worker postMessages
+  // (e.g. on transient track restarts) and tearing down a healthy session
+  // 5-10s into a quiet pause on iPad. iOS smoke-test 2026-04-24.
 
   // While Tavus is the voice, our Deepgram transcript and our
   // /api/chat assistant text are unrelated to what the avatar is
@@ -345,59 +297,39 @@ export function CashierApp() {
       className="relative w-screen overflow-hidden bg-black flex flex-col h-screen"
       style={{ height: "100dvh" }}
     >
-      {/* Top row — flex item, content-sized. Safe-area padding keeps it
-          clear of Safari's URL / tab bar, even with multiple tabs open. */}
-      <div
-        className="flex-shrink-0 relative z-20 w-full flex items-start gap-3 px-4"
-        style={{
-          paddingTop: "max(0.5rem, env(safe-area-inset-top))",
-          paddingBottom: "0.5rem",
-        }}
-      >
-        <div className="flex-shrink-0 pt-1">
-          <AvatarOverlay status={overlayStatus} />
-        </div>
-        <div className="flex-1 min-w-0 flex justify-center">
-          {showTranscript && (
-            <div className="backdrop-blur-md bg-black/55 rounded-2xl px-4 py-2 border border-white/10 max-w-lg w-full">
-              {conversation.transcript &&
-                conversation.phase === "listening" && (
-                  <p className="font-sans text-sm text-white/70 italic text-center truncate">
-                    &ldquo;{conversation.transcript}&rdquo;
-                  </p>
-                )}
-              {conversation.assistantText &&
-                conversation.phase === "responding" && (
-                  <p className="font-sans text-sm text-white/90 text-center">
-                    {conversation.assistantText}
-                  </p>
-                )}
-            </div>
-          )}
-        </div>
-        {/* End / Rejoin control. Hidden until the user engages — pre-
-            interaction the screen stays chrome-free per Temur's Apr 22
-            ask for a portrait "window to a real person, not a website". */}
-        {tavusEnabled && (hasInteracted || tavus.status === "error") && (
-          <div className="flex-shrink-0 pt-1">
-            <button
-              onClick={handleTavusToggle}
-              className="backdrop-blur-md bg-black/50 border border-white/10 rounded-full px-3 py-1.5 text-xs font-sans text-white/80 hover:bg-black/60 transition-colors"
-              aria-label={
-                tavus.status === "ready" || tavus.status === "connected"
-                  ? "End avatar call"
-                  : "Rejoin avatar call"
-              }
-            >
-              {tavus.status === "ready" || tavus.status === "connected"
-                ? "End call"
-                : tavus.status === "connecting"
-                  ? "Cancel"
-                  : "Rejoin"}
-            </button>
+      {/* Top row intentionally minimal — per Temur's 2026-04-24 reference
+          (IMG_0036.png) the screen should show ONLY the avatar, the mic
+          button, and the cart pill. No status pill, no End/Rejoin button,
+          no transcript bubble in Tavus mode. Transcript bubble is kept
+          only for the rare Cartesia-only fallback path so the customer
+          can see what was heard when there's no avatar face on screen.
+          Removed: <AvatarOverlay/> status pill (top-left), End/Rejoin
+          button (top-right). The orange Rejoin path is handled implicitly
+          by the avatar's own retry button when status === "error". */}
+      {showTranscript && (
+        <div
+          className="flex-shrink-0 relative z-20 w-full flex justify-center px-4"
+          style={{
+            paddingTop: "max(0.5rem, env(safe-area-inset-top))",
+            paddingBottom: "0.5rem",
+          }}
+        >
+          <div className="backdrop-blur-md bg-black/55 rounded-2xl px-4 py-2 border border-white/10 max-w-lg w-full">
+            {conversation.transcript &&
+              conversation.phase === "listening" && (
+                <p className="font-sans text-sm text-white/70 italic text-center truncate">
+                  &ldquo;{conversation.transcript}&rdquo;
+                </p>
+              )}
+            {conversation.assistantText &&
+              conversation.phase === "responding" && (
+                <p className="font-sans text-sm text-white/90 text-center">
+                  {conversation.assistantText}
+                </p>
+              )}
           </div>
-        )}
-      </div>
+        </div>
+      )}
 
       {/* Avatar stage — flex-1 fills remaining vertical space and shrinks
           gracefully when the viewport gets shorter (multi-tab Safari). */}
