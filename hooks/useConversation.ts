@@ -10,6 +10,7 @@ import { telemetry } from "@/lib/telemetry";
 import { isAvatarSpeaking } from "@/lib/tavusPresence";
 import { fillersFor, pickFiller } from "@/lib/fillers";
 import { isFinalizeSpeech } from "@/lib/finalize";
+import { isPresentCompanySpeech } from "@/lib/commands";
 import type { OrderItem, SSEEvent } from "@/lib/schemas";
 
 type ConversationPhase =
@@ -32,10 +33,22 @@ interface UseConversationOptions {
   // fed by CashierApp's useTavusTranscripts subscription — no extra
   // flag is needed here.
   cartesiaEnabled?: boolean;
+  // Fires when the customer says a pitch trigger phrase (see
+  // lib/commands.ts). CashierApp uses this to orchestrate the
+  // Tavus conversation.echo flow for the investor demo.
+  onPresentCompany?: () => void;
+  // When the referenced boolean is true, Deepgram → /api/chat is
+  // suppressed for the duration of the pitch monologue. Prevents cart
+  // mutations from firing while the replica reads the scripted pitch.
+  isPitchingRef?: React.RefObject<boolean>;
 }
 
 export function useConversation(options: UseConversationOptions = {}) {
-  const { cartesiaEnabled = false } = options;
+  const {
+    cartesiaEnabled = false,
+    onPresentCompany,
+    isPitchingRef,
+  } = options;
   const cartesiaEnabledRef = useRef(cartesiaEnabled);
   cartesiaEnabledRef.current = cartesiaEnabled;
 
@@ -351,6 +364,11 @@ export function useConversation(options: UseConversationOptions = {}) {
   // Stable refs for hook callbacks to prevent unnecessary re-renders
   const sendToChatRef = useRef(sendToChat);
   sendToChatRef.current = sendToChat;
+  // Same pattern for the pitch trigger so the handler captured inside
+  // the memoised deepgramOptions sees the caller's latest callback
+  // without re-subscribing Deepgram on every CashierApp render.
+  const onPresentCompanyRef = useRef(onPresentCompany);
+  onPresentCompanyRef.current = onPresentCompany;
 
   const vadOptions = useMemo(
     () => ({
@@ -404,22 +422,50 @@ export function useConversation(options: UseConversationOptions = {}) {
           );
           return;
         }
-        if (fullTranscript.trim()) {
+        const trimmed = fullTranscript.trim();
+        if (!trimmed) return;
+
+        // Demo-control phrases take precedence over the normal chat
+        // route. "Present the company" hands off to Tavus's native
+        // echo pipeline (see CashierApp orchestration); we return
+        // BEFORE sendToChat so the LLM never sees the trigger.
+        if (onPresentCompanyRef.current && isPresentCompanySpeech(trimmed)) {
           console.log(
-            "[Conversation] Speech ended, sending to chat:",
-            fullTranscript.trim(),
-            language ? `[${language}]` : ""
+            "[Conversation] Present-company trigger matched — handing off."
           );
           setTranscript("");
-          sendToChatRef.current(fullTranscript.trim(), language);
+          onPresentCompanyRef.current();
+          return;
         }
+
+        // Pitch-in-progress guard — while the replica is reading the
+        // scripted pitch we suppress any Deepgram transcripts (mic
+        // echo + background chatter) from mutating the cart.
+        if (isPitchingRef?.current) {
+          console.log(
+            "[Conversation] Dropping transcript — pitch in progress:",
+            trimmed.slice(0, 60)
+          );
+          return;
+        }
+
+        console.log(
+          "[Conversation] Speech ended, sending to chat:",
+          trimmed,
+          language ? `[${language}]` : ""
+        );
+        setTranscript("");
+        sendToChatRef.current(trimmed, language);
       },
       onError: (err: Error) => {
         setError(err.message);
         setPhase("error");
       },
     }),
-    []
+    // isPitchingRef is a stable RefObject from the caller, so including
+    // it does not churn the memo — it satisfies react-hooks/exhaustive-
+    // deps without breaking the single-Deepgram-subscription invariant.
+    [isPitchingRef]
   );
 
   const vad = useVAD(vadOptions);

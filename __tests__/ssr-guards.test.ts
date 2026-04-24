@@ -94,4 +94,29 @@ describe("SSR guards — typeof window === 'undefined' branches", () => {
     }
     expect(true).toBe(true);
   });
+
+  it("useSessionIdleTimeout visibility effect short-circuits when document is undefined", async () => {
+    const effects: Effect[] = [];
+    vi.doMock("react", () => stubReactModule(effects));
+    const { useSessionIdleTimeout } = await import(
+      "@/hooks/useSessionIdleTimeout"
+    );
+    useSessionIdleTimeout({
+      active: true,
+      idleMs: 1000,
+      onTimeout: () => {},
+    });
+    const saved = globalThis.document;
+    // @ts-expect-error — erase `document` for the duration of the effect run.
+    globalThis.document = undefined;
+    try {
+      for (const fn of effects) {
+        const cleanup = fn();
+        if (typeof cleanup === "function") cleanup();
+      }
+    } finally {
+      globalThis.document = saved;
+    }
+    expect(true).toBe(true);
+  });
 });

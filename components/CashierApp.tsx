@@ -7,7 +7,11 @@ import { useTavus } from "@/hooks/useTavus";
 import { useTavusTranscripts } from "@/hooks/useTavusTranscripts";
 import { useSessionIdleTimeout } from "@/hooks/useSessionIdleTimeout";
 import { AvatarOverlay } from "@/components/avatar/AvatarOverlay";
-import { DailyStage } from "@/components/avatar/DailyStage";
+import {
+  DailyStage,
+  type DailyStageHandle,
+} from "@/components/avatar/DailyStage";
+import { hasPitchText, PITCH_TEXT, PITCH_DURATION_MS } from "@/lib/pitch";
 import { MicButton } from "@/components/ui/MicButton";
 import { BottomSheet } from "@/components/BottomSheet";
 import { LatencyOverlay } from "@/components/debug/LatencyOverlay";
@@ -100,8 +104,26 @@ export function CashierApp() {
     tavus.status === "idle" ||
     tavus.status === "error";
 
+  // Imperative handle to DailyStage so we can send Tavus Interactions
+  // Protocol commands (conversation.echo / conversation.interrupt) for
+  // the investor-pitch trigger.
+  const dailyStageRef = useRef<DailyStageHandle>(null);
+
+  // Guards any Deepgram → /api/chat routing while the scripted pitch is
+  // playing. CashierApp flips it on before sending the echo and off
+  // when Tavus's replica-stopped-speaking event fires (or a safety
+  // timeout trips, whichever comes first).
+  const isPitchingRef = useRef(false);
+
+  // Forward-declared so useConversation can call into the orchestrator
+  // without creating a TDZ cycle. The actual implementation is wired
+  // below once `idle` + `dailyStageRef` are in scope.
+  const onPresentCompanyRef = useRef<() => void>(() => {});
+
   const conversation = useConversation({
     cartesiaEnabled,
+    onPresentCompany: () => onPresentCompanyRef.current(),
+    isPitchingRef,
   });
 
   // Subscribe to Tavus's replica transcript stream purely for the
@@ -143,6 +165,43 @@ export function CashierApp() {
   useEffect(() => {
     if (conversation.turnIndex > 0) idle.resetIdle();
   }, [conversation.turnIndex, idle]);
+
+  // Investor-pitch orchestrator (Temur's 2026-04-24 ask). When the
+  // customer says "Present the company", useConversation hands off
+  // BEFORE routing to /api/chat — here we:
+  //   1. Guard: no pitch text yet OR already pitching → silent no-op.
+  //   2. Freeze the 3-min idle timer (pitch is ~60-90s).
+  //   3. Flip the pitch guard so any mic echo during the monologue
+  //      doesn't trigger phantom cart actions.
+  //   4. Send conversation.interrupt to drop any in-flight replica
+  //      speech (otherwise echo queues behind and feels laggy).
+  //   5. Send conversation.echo with PITCH_TEXT — Tavus reads it
+  //      verbatim via native TTS + lip-sync, bypassing the persona LLM.
+  //   6. Clean up on `replica-stopped-speaking` OR a safety timeout.
+  useEffect(() => {
+    onPresentCompanyRef.current = () => {
+      if (!hasPitchText() || isPitchingRef.current) return;
+      const stage = dailyStageRef.current;
+      if (!stage) return;
+      idle.freeze();
+      isPitchingRef.current = true;
+      let unsubscribe: (() => void) | null = null;
+      let safety: ReturnType<typeof setTimeout> | null = null;
+      const cleanup = () => {
+        if (!isPitchingRef.current) return;
+        isPitchingRef.current = false;
+        if (unsubscribe) unsubscribe();
+        unsubscribe = null;
+        if (safety !== null) clearTimeout(safety);
+        safety = null;
+        idle.unfreeze();
+      };
+      unsubscribe = stage.onReplicaStoppedSpeaking(cleanup);
+      safety = setTimeout(cleanup, PITCH_DURATION_MS);
+      stage.sendInterrupt();
+      stage.sendEcho(PITCH_TEXT);
+    };
+  }, [idle]);
 
   // Cart is fed by our Deepgram → /api/chat pipeline in BOTH modes.
   // No Tavus-side bridge — spec'd M2 architecture: user speech →
@@ -345,7 +404,9 @@ export function CashierApp() {
       <div className="relative flex-1 min-h-0 w-full">
         {tavusEnabled ? (
           <DailyStage
+            ref={dailyStageRef}
             conversationUrl={tavus.session?.conversationUrl ?? null}
+            conversationId={tavus.session?.conversationId ?? null}
             status={tavus.status}
             errorMessage={tavus.error}
             // Show the avatar the instant the handshake is ready, not

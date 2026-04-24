@@ -1,8 +1,15 @@
 "use client";
 
-import { useCallback, useEffect, useRef } from "react";
+import {
+  forwardRef,
+  useCallback,
+  useEffect,
+  useImperativeHandle,
+  useRef,
+} from "react";
 import DailyIframe, {
   type DailyCall,
+  type DailyEventObjectAppMessage,
   type DailyEventObjectParticipant,
   type DailyEventObjectTrack,
   type DailyEventObjectFatalError,
@@ -11,6 +18,10 @@ import DailyIframe, {
 
 interface DailyStageProps {
   conversationUrl: string | null;
+  // Tavus conversation id — required for the Interactions Protocol
+  // app-messages (conversation.echo, conversation.interrupt). Null
+  // until the session has been created.
+  conversationId: string | null;
   status: "idle" | "connecting" | "connected" | "ready" | "error";
   errorMessage: string | null;
   // When false the call stays joined (so the WebRTC handshake can run
@@ -19,6 +30,23 @@ interface DailyStageProps {
   visible: boolean;
   onReady: () => void;
   onRetry: () => void;
+}
+
+// Imperative API exposed to CashierApp for the investor-pitch flow.
+// The echo/interrupt commands ride Daily's app-message data channel;
+// Tavus's Interactions Protocol listens on the same channel and
+// drives the replica's native TTS + lip-sync from the provided text —
+// bypassing the persona LLM entirely.
+export interface DailyStageHandle {
+  sendEcho(text: string): void;
+  sendInterrupt(): void;
+  onReplicaStoppedSpeaking(cb: () => void): () => void;
+}
+
+interface TavusAppMessage {
+  message_type?: string;
+  event_type?: string;
+  conversation_id?: string;
 }
 
 // Headless Daily integration: replaces the old <iframe src={conversationUrl}>
@@ -36,21 +64,80 @@ interface DailyStageProps {
 // setup; the replica greets + responds driven entirely by Tavus's internal
 // pipeline. That's fine — our /api/chat path still drives cart mutations
 // via Deepgram independently (see hooks/useConversation.ts).
-export function DailyStage({
-  conversationUrl,
-  status,
-  errorMessage,
-  visible,
-  onReady,
-  onRetry,
-}: DailyStageProps) {
+export const DailyStage = forwardRef<DailyStageHandle, DailyStageProps>(
+  function DailyStage(
+    {
+      conversationUrl,
+      conversationId,
+      status,
+      errorMessage,
+      visible,
+      onReady,
+      onRetry,
+    }: DailyStageProps,
+    ref
+  ) {
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const callRef = useRef<DailyCall | null>(null);
   const joinedUrlRef = useRef<string | null>(null);
   const readySignaledRef = useRef(false);
   const onReadyRef = useRef(onReady);
-  onReadyRef.current = onReady;
+  useEffect(() => {
+    onReadyRef.current = onReady;
+  }, [onReady]);
+  // Subscribers for replica-stopped-speaking events from Tavus's
+  // Interactions Protocol; CashierApp uses these to unfreeze the
+  // idle timer and clear the pitch guard after the replica finishes.
+  const stoppedSpeakingSubsRef = useRef<Set<() => void>>(new Set());
+  const conversationIdRef = useRef(conversationId);
+  useEffect(() => {
+    conversationIdRef.current = conversationId;
+  }, [conversationId]);
+
+  useImperativeHandle(
+    ref,
+    () => ({
+      sendEcho(text: string) {
+        const call = callRef.current;
+        const id = conversationIdRef.current;
+        if (!call || !id || !text.trim()) return;
+        call.sendAppMessage(
+          {
+            message_type: "conversation",
+            event_type: "conversation.echo",
+            conversation_id: id,
+            properties: { text },
+          },
+          "*"
+        );
+      },
+      sendInterrupt() {
+        const call = callRef.current;
+        const id = conversationIdRef.current;
+        if (!call || !id) return;
+        // Send an interrupt before any echo so queued replica speech
+        // is dropped rather than queueing the pitch behind — otherwise
+        // the trigger feels laggy (2-3s).
+        call.sendAppMessage(
+          {
+            message_type: "conversation",
+            event_type: "conversation.interrupt",
+            conversation_id: id,
+            properties: {},
+          },
+          "*"
+        );
+      },
+      onReplicaStoppedSpeaking(cb: () => void) {
+        stoppedSpeakingSubsRef.current.add(cb);
+        return () => {
+          stoppedSpeakingSubsRef.current.delete(cb);
+        };
+      },
+    }),
+    []
+  );
 
   const attachTrack = useCallback(
     (event: DailyEventObjectTrack) => {
@@ -165,6 +252,26 @@ export function DailyStage({
       });
       call.on("nonfatal-error", (ev: DailyEventObjectNonFatalError) => {
         console.warn("[Daily] nonfatal error:", ev.type, ev.details);
+      });
+      // Tavus Interactions Protocol publishes conversation events on
+      // Daily's app-message channel. We care about
+      // `replica-stopped-speaking` to know when the echoed pitch has
+      // finished so CashierApp can unfreeze the idle timer and clear
+      // the pitch guard. Filter on conversation_id as defence-in-depth
+      // against stale messages from a prior session.
+      call.on("app-message", (ev: DailyEventObjectAppMessage) => {
+        const data = (ev.data ?? {}) as TavusAppMessage;
+        const id = conversationIdRef.current;
+        if (data.message_type !== "conversation") return;
+        if (data.event_type !== "replica-stopped-speaking") return;
+        if (id && data.conversation_id && data.conversation_id !== id) return;
+        for (const sub of stoppedSpeakingSubsRef.current) {
+          try {
+            sub();
+          } catch {
+            // subscribers must not break the event loop
+          }
+        }
       });
 
       try {
@@ -292,4 +399,5 @@ export function DailyStage({
       })()}
     </div>
   );
-}
+  }
+);
