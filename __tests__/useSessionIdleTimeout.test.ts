@@ -72,7 +72,7 @@ describe("useSessionIdleTimeout", () => {
     expect(onTimeout).not.toHaveBeenCalled();
   });
 
-  it("visibilitychange → hidden fires onTimeout immediately", () => {
+  it("visibilitychange → hidden fires onTimeout after a 5s grace window", () => {
     const onTimeout = vi.fn();
     renderHook(() =>
       useSessionIdleTimeout({ active: true, idleMs: 60_000, onTimeout })
@@ -85,12 +85,46 @@ describe("useSessionIdleTimeout", () => {
     act(() => {
       document.dispatchEvent(new Event("visibilitychange"));
     });
+    // Grace window: should NOT have fired yet.
+    expect(onTimeout).not.toHaveBeenCalled();
+    act(() => vi.advanceTimersByTime(4_999));
+    expect(onTimeout).not.toHaveBeenCalled();
+    act(() => vi.advanceTimersByTime(2));
     expect(onTimeout).toHaveBeenCalledTimes(1);
     // Reset so subsequent tests see a visible document.
     Object.defineProperty(document, "hidden", {
       value: false,
       configurable: true,
     });
+  });
+
+  it("visibility returning to visible within the grace window cancels the disconnect", () => {
+    // This is the iOS Safari permission-prompt case: visibilitychange fires
+    // hidden while the mic permission modal is on screen, then returns to
+    // visible ~1s later when the user taps Allow. We must NOT disconnect.
+    const onTimeout = vi.fn();
+    renderHook(() =>
+      useSessionIdleTimeout({ active: true, idleMs: 60_000, onTimeout })
+    );
+    Object.defineProperty(document, "hidden", {
+      value: true,
+      configurable: true,
+    });
+    act(() => {
+      document.dispatchEvent(new Event("visibilitychange"));
+    });
+    // Inside the grace window, page returns to visible.
+    act(() => vi.advanceTimersByTime(1_500));
+    Object.defineProperty(document, "hidden", {
+      value: false,
+      configurable: true,
+    });
+    act(() => {
+      document.dispatchEvent(new Event("visibilitychange"));
+    });
+    // Even after the original 5s grace would have elapsed, we should not fire.
+    act(() => vi.advanceTimersByTime(10_000));
+    expect(onTimeout).not.toHaveBeenCalled();
   });
 
   it("visibilitychange while inactive is ignored (no spurious disconnects)", () => {
@@ -105,6 +139,7 @@ describe("useSessionIdleTimeout", () => {
     act(() => {
       document.dispatchEvent(new Event("visibilitychange"));
     });
+    act(() => vi.advanceTimersByTime(10_000));
     expect(onTimeout).not.toHaveBeenCalled();
     Object.defineProperty(document, "hidden", {
       value: false,
