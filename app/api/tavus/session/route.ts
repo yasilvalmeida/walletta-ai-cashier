@@ -83,7 +83,12 @@ export async function POST(request: Request) {
       // location" etc) because the two prompts compete.
       properties: {
         max_call_duration: 1800,
-        participant_left_timeout: 60,
+        // 180s (was 60s) — belt-and-suspenders with the client-side
+        // useSessionIdleTimeout hook. Temur got billed 271min for 15min
+        // of testing on 2026-04-24 because sessions stayed alive in the
+        // background. Primary control is the client timer; this is a
+        // fallback for client bugs / lost-pagehide beacons.
+        participant_left_timeout: 180,
         enable_recording: false,
       },
     };
