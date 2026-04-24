@@ -19,6 +19,21 @@ const dmSans = DM_Sans({
 export const metadata: Metadata = {
   title: "Walletta AI Cashier — Erewhon Market",
   description: "AI-powered premium checkout experience",
+  manifest: "/manifest.webmanifest",
+  // apple-mobile-web-app-capable + black-translucent give the native
+  // look when launched from the iPad Home Screen. The status bar is
+  // still visible on iPad 17+ regardless of this value (Apple does not
+  // honour status-bar hiding from web apps); pair with Guided Access
+  // on the demo iPad for a fully chrome-free look.
+  appleWebApp: {
+    capable: true,
+    statusBarStyle: "black-translucent",
+    title: "Walletta",
+  },
+  icons: {
+    apple: "/icons/apple-touch-icon.png",
+    icon: [{ url: "/icons/icon-192.png", sizes: "192x192", type: "image/png" }],
+  },
 };
 
 export const viewport: Viewport = {
@@ -27,6 +42,7 @@ export const viewport: Viewport = {
   maximumScale: 1,
   userScalable: false,
   viewportFit: "cover",
+  themeColor: "#1A1714",
 };
 
 export default function RootLayout({
