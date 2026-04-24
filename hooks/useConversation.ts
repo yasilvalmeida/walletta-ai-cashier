@@ -415,15 +415,39 @@ export function useConversation(options: UseConversationOptions = {}) {
         // almost certainly the avatar echoing off the iPad speakers.
         const s = ttsRef.current.status;
         if (s === "speaking" || s === "loading") return;
+
+        const trimmed = fullTranscript.trim();
+        if (!trimmed) return;
+
+        // Receipt fast-path: fire the receipt modal immediately when
+        // the user says a finalize phrase AND the cart already has
+        // items. We deliberately bypass the avatar-speaking guard
+        // here because in Tavus mode the avatar's 1.5s "speaking"
+        // window often overlaps the user's "that's all" — without
+        // this fast-path the transcript was dropped and the modal
+        // never appeared (iPad smoke test 2026-04-24).
+        // Cart-has-items + receipt-not-already-set is a tight enough
+        // guard that the worst-case false positive (avatar echoing
+        // "that's all" through speakers) is bounded to a single
+        // checkout that the customer was about to do anyway.
+        if (isFinalizeSpeech(trimmed)) {
+          const state = useCartStore.getState();
+          if (state.items.length > 0 && !state.receiptSnapshot) {
+            console.log(
+              "[Conversation] Finalize phrase — firing receipt:",
+              trimmed
+            );
+            setReceiptReady(true);
+          }
+        }
+
         if (isAvatarSpeaking()) {
           console.log(
             "[Conversation] Dropping transcript — avatar is speaking:",
-            fullTranscript.trim().slice(0, 60)
+            trimmed.slice(0, 60)
           );
           return;
         }
-        const trimmed = fullTranscript.trim();
-        if (!trimmed) return;
 
         // Demo-control phrases take precedence over the normal chat
         // route. "Present the company" hands off to Tavus's native
@@ -465,7 +489,9 @@ export function useConversation(options: UseConversationOptions = {}) {
     // isPitchingRef is a stable RefObject from the caller, so including
     // it does not churn the memo — it satisfies react-hooks/exhaustive-
     // deps without breaking the single-Deepgram-subscription invariant.
-    [isPitchingRef]
+    // setReceiptReady is a stable Zustand setter (its identity never
+    // changes) so it likewise doesn't churn the memo.
+    [isPitchingRef, setReceiptReady]
   );
 
   const vad = useVAD(vadOptions);

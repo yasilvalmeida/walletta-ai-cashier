@@ -13,6 +13,7 @@ import {
 import { hasPitchText, PITCH_TEXT, PITCH_DURATION_MS } from "@/lib/pitch";
 import { MicButton } from "@/components/ui/MicButton";
 import { BottomSheet } from "@/components/BottomSheet";
+import { BasketButton } from "@/components/BasketButton";
 import { LatencyOverlay } from "@/components/debug/LatencyOverlay";
 import { markAvatarSpeech } from "@/lib/tavusPresence";
 import { useCartStore } from "@/store/cartStore";
@@ -294,25 +295,37 @@ export function CashierApp() {
 
   return (
     <div
-      className="relative w-screen overflow-hidden bg-black flex flex-col h-screen"
+      className="relative w-screen overflow-hidden bg-black"
       style={{ height: "100dvh" }}
     >
-      {/* Top row intentionally minimal — per Temur's 2026-04-24 reference
-          (IMG_0036.png) the screen should show ONLY the avatar, the mic
-          button, and the cart pill. No status pill, no End/Rejoin button,
-          no transcript bubble in Tavus mode. Transcript bubble is kept
-          only for the rare Cartesia-only fallback path so the customer
-          can see what was heard when there's no avatar face on screen.
-          Removed: <AvatarOverlay/> status pill (top-left), End/Rejoin
-          button (top-right). The orange Rejoin path is handled implicitly
-          by the avatar's own retry button when status === "error". */}
+      {/* Avatar fills the entire viewport. Mic and basket float as
+          absolute overlays per Temur's 2026-04-24 reference
+          (IMG_0036.png) — no flex-column row stack that pushed the
+          avatar into a smaller box. */}
+      <div className="absolute inset-0">
+        {tavusEnabled ? (
+          <DailyStage
+            ref={dailyStageRef}
+            conversationUrl={tavus.session?.conversationUrl ?? null}
+            conversationId={tavus.session?.conversationId ?? null}
+            status={tavus.status}
+            errorMessage={tavus.error}
+            visible={tavus.status === "connected" || tavus.status === "ready"}
+            onReady={tavus.markReady}
+            onRetry={() => void tavus.connect()}
+          />
+        ) : (
+          <div className="absolute inset-0 bg-gradient-to-b from-zinc-900 via-zinc-800 to-black" />
+        )}
+      </div>
+
+      {/* Cartesia-only fallback transcript — only renders when avatar
+          isn't the voice (lang≠en or Tavus error). Floats at the top
+          centre over the gradient. */}
       {showTranscript && (
         <div
-          className="flex-shrink-0 relative z-20 w-full flex justify-center px-4"
-          style={{
-            paddingTop: "max(0.5rem, env(safe-area-inset-top))",
-            paddingBottom: "0.5rem",
-          }}
+          className="absolute top-0 left-0 right-0 z-20 flex justify-center px-4 pointer-events-none"
+          style={{ paddingTop: "max(0.75rem, env(safe-area-inset-top))" }}
         >
           <div className="backdrop-blur-md bg-black/55 rounded-2xl px-4 py-2 border border-white/10 max-w-lg w-full">
             {conversation.transcript &&
@@ -331,83 +344,60 @@ export function CashierApp() {
         </div>
       )}
 
-      {/* Avatar stage — flex-1 fills remaining vertical space and shrinks
-          gracefully when the viewport gets shorter (multi-tab Safari). */}
-      <div className="relative flex-1 min-h-0 w-full">
-        {tavusEnabled ? (
-          <DailyStage
-            ref={dailyStageRef}
-            conversationUrl={tavus.session?.conversationUrl ?? null}
-            conversationId={tavus.session?.conversationId ?? null}
-            status={tavus.status}
-            errorMessage={tavus.error}
-            // Show the avatar the instant the handshake is ready, not
-            // only after the customer taps the mic. A black gradient
-            // pre-interaction reads as a broken kiosk; a live face
-            // reads as "a window to a real person" (Temur Apr 22).
-            visible={tavus.status === "connected" || tavus.status === "ready"}
-            onReady={tavus.markReady}
-            onRetry={() => void tavus.connect()}
-          />
-        ) : (
-          <div className="absolute inset-0 bg-gradient-to-b from-zinc-900 via-zinc-800 to-black" />
-        )}
-
-        {/* Processing dots only in Cartesia mode (no avatar face to
-            convey thinking). In Tavus mode the avatar's own idle
-            animation + the MicButton thinking ring cover it without
-            layering a second spinner over the face. */}
-        {conversation.phase === "processing" && tavus.status !== "ready" && (
-          <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
-            <div className="flex gap-2">
-              <span className="w-2.5 h-2.5 rounded-full bg-white/70 animate-bounce [animation-delay:0ms]" />
-              <span className="w-2.5 h-2.5 rounded-full bg-white/70 animate-bounce [animation-delay:150ms]" />
-              <span className="w-2.5 h-2.5 rounded-full bg-white/70 animate-bounce [animation-delay:300ms]" />
-            </div>
+      {/* Processing dots only in Cartesia mode (no avatar face to
+          convey thinking). In Tavus mode the avatar's own idle
+          animation + the MicButton thinking ring cover it. */}
+      {conversation.phase === "processing" && tavus.status !== "ready" && (
+        <div className="absolute inset-0 z-10 flex items-center justify-center pointer-events-none">
+          <div className="flex gap-2">
+            <span className="w-2.5 h-2.5 rounded-full bg-white/70 animate-bounce [animation-delay:0ms]" />
+            <span className="w-2.5 h-2.5 rounded-full bg-white/70 animate-bounce [animation-delay:150ms]" />
+            <span className="w-2.5 h-2.5 rounded-full bg-white/70 animate-bounce [animation-delay:300ms]" />
           </div>
+        </div>
+      )}
+
+      <AnimatePresence>
+        {conversation.error && (
+          <motion.div
+            key={conversation.error}
+            initial={{ opacity: 0, y: -8 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -8 }}
+            transition={{ duration: 0.2 }}
+            className="absolute top-16 left-1/2 -translate-x-1/2 z-20 max-w-sm w-[90%]"
+          >
+            <div className="backdrop-blur-md bg-red-900/55 rounded-full px-4 py-2 border border-red-500/25">
+              <p className="font-sans text-xs text-red-100 text-center">
+                {conversation.error}
+              </p>
+            </div>
+          </motion.div>
         )}
+      </AnimatePresence>
 
-        <AnimatePresence>
-          {conversation.error && (
-            <motion.div
-              key={conversation.error}
-              initial={{ opacity: 0, y: -8 }}
-              animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0, y: -8 }}
-              transition={{ duration: 0.2 }}
-              className="absolute top-3 left-1/2 -translate-x-1/2 z-10 max-w-sm w-[90%]"
-            >
-              <div className="backdrop-blur-md bg-red-900/55 rounded-full px-4 py-2 border border-red-500/25">
-                <p className="font-sans text-xs text-red-100 text-center">
-                  {conversation.error}
-                </p>
-              </div>
-            </motion.div>
-          )}
-        </AnimatePresence>
-      </div>
+      {/* Top-right basket — always visible per Temur's reference. */}
+      <BasketButton />
 
-      {/* Mic footer — flex item, content-sized, always above the home
-          indicator regardless of iPad model or orientation. */}
+      {/* Bottom-centre mic — absolute, sits above the home indicator
+          via safe-area padding. The avatar fills behind it. */}
       <div
-        className="flex-shrink-0 relative z-20 flex flex-col items-center w-full"
+        className="absolute bottom-0 left-0 right-0 z-20 flex justify-center pointer-events-none"
         style={{
-          paddingTop: "0.75rem",
-          paddingBottom: "max(0.75rem, env(safe-area-inset-bottom))",
+          paddingBottom: "max(1rem, env(safe-area-inset-bottom))",
         }}
       >
-        {/* "Tap to start ordering" text removed Apr 22 — the mic-button
-            affordance is enough, and the label read as website chrome. */}
-        <MicButton
-          isListening={conversation.isListening}
-          isSpeaking={conversation.isSpeaking}
-          isThinking={conversation.phase === "processing"}
-          onToggle={handleMicToggle}
-        />
+        <div className="pointer-events-auto">
+          <MicButton
+            isListening={conversation.isListening}
+            isSpeaking={conversation.isSpeaking}
+            isThinking={conversation.phase === "processing"}
+            onToggle={handleMicToggle}
+          />
+        </div>
       </div>
 
-      {/* BottomSheet overlays everything above (z-30 for receipt, z-10 for
-          the cart drawer). Rendered last so it wins the z-stack. */}
+      {/* Receipt-only overlay (cart drawer moved to BasketButton). */}
       <BottomSheet />
       <LatencyOverlay />
     </div>
