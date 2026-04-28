@@ -1,8 +1,8 @@
 // @vitest-environment happy-dom
 //
 // Covers the investor-pitch hand-off inside useConversation:
-//   - onSpeechEnd("present the company") invokes onPresentCompany
-//     and does NOT route to /api/chat.
+//   - onSpeechEnd("Walletta, what is your mission?") invokes
+//     onPresentCompany and does NOT route to /api/chat.
 //   - isPitchingRef.current === true suppresses any transcript from
 //     reaching /api/chat (pitch monologue guard).
 
@@ -70,30 +70,32 @@ afterEach(() => {
 });
 
 describe("useConversation — pitch trigger + guard", () => {
-  it("onSpeechEnd(\"present the company\") hands off and skips /api/chat", async () => {
+  it("onSpeechEnd(\"Walletta, what is your mission?\") hands off and skips /api/chat", async () => {
     const fetchSpy = vi.fn();
     vi.stubGlobal("fetch", fetchSpy);
     const onPresentCompany = vi.fn();
     renderHook(() => useConversation({ onPresentCompany }));
     await act(async () => {
-      lastDg!.onSpeechEnd("Present the company");
+      lastDg!.onSpeechEnd("Walletta, what is your mission?");
       await new Promise((r) => setTimeout(r, 10));
     });
     expect(onPresentCompany).toHaveBeenCalledTimes(1);
     expect(fetchSpy).not.toHaveBeenCalled();
   });
 
-  it("pitch variants ('pitch Walletta', 'investor pitch') trigger the hand-off", async () => {
+  it("punctuation-stripped + embedded variants still trigger the hand-off", async () => {
+    // iOS dictation drops the comma; demo ad-libs add filler. Both must
+    // still fire the trigger.
     const fetchSpy = vi.fn();
     vi.stubGlobal("fetch", fetchSpy);
     const onPresentCompany = vi.fn();
     renderHook(() => useConversation({ onPresentCompany }));
     await act(async () => {
-      lastDg!.onSpeechEnd("pitch Walletta");
+      lastDg!.onSpeechEnd("walletta what is your mission");
       await new Promise((r) => setTimeout(r, 5));
     });
     await act(async () => {
-      lastDg!.onSpeechEnd("give the pitch now");
+      lastDg!.onSpeechEnd("okay Walletta, what is your mission today");
       await new Promise((r) => setTimeout(r, 5));
     });
     expect(onPresentCompany).toHaveBeenCalledTimes(2);
