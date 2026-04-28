@@ -7,14 +7,15 @@ describe("lib/pitch", () => {
     expect(PITCH_DURATION_MS).toBeGreaterThanOrEqual(60_000);
   });
 
-  it("PITCH_TEXT is a string (empty is valid until Temur sends content)", () => {
+  it("PITCH_TEXT is populated with the canonical opener", () => {
+    // Locked 2026-04-28: investors hear this on Tuesday. An accidental
+    // wipe would let the trigger silently no-op (CashierApp short-
+    // circuits via hasPitchText()) and the demo would just stall.
     expect(typeof PITCH_TEXT).toBe("string");
+    expect(PITCH_TEXT).toContain("I am Walletta");
   });
 
   it("hasPitchText() mirrors whether PITCH_TEXT is non-whitespace", () => {
-    // The implementation is trivial, but tying an invariant to the
-    // consuming orchestration (CashierApp short-circuits when false)
-    // keeps the contract explicit.
     expect(hasPitchText()).toBe(PITCH_TEXT.trim().length > 0);
   });
 

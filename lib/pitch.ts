@@ -16,7 +16,8 @@
 //   - Avoid em-dashes and ellipses (inconsistent pauses).
 //   - ~150 wpm ≈ 150 words ≈ 900 chars for a 60s pitch.
 
-export const PITCH_TEXT: string = "";
+export const PITCH_TEXT: string =
+  "For decades, global commerce has relied on hundreds of millions of people to do a machine's job. That era ends today. I am Walletta. By taking over the checkout experience, we are fundamentally upgrading how the world operates. Our roadmap is clear: to deploy one million avatars like me in the next five to ten years. No breaks, no errors, just absolute precision. We are building the ultimate infrastructure for tomorrow's retail. The shift is happening right now, in front of your eyes.";
 
 // Safety fallback: if Tavus never emits `replica-stopped-speaking`
 // (e.g. transient Daily disconnect), unfreeze the idle timer and clear

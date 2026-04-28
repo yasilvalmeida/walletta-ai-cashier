@@ -13,7 +13,6 @@ import {
 import { hasPitchText, PITCH_TEXT, PITCH_DURATION_MS } from "@/lib/pitch";
 import { MicButton } from "@/components/ui/MicButton";
 import { BottomSheet } from "@/components/BottomSheet";
-import { BasketButton } from "@/components/BasketButton";
 import { LatencyOverlay } from "@/components/debug/LatencyOverlay";
 import { markAvatarSpeech } from "@/lib/tavusPresence";
 import { useCartStore } from "@/store/cartStore";
@@ -376,11 +375,12 @@ export function CashierApp() {
         )}
       </AnimatePresence>
 
-      {/* Top-right basket — always visible per Temur's reference. */}
-      <BasketButton />
-
       {/* Bottom-centre mic — absolute, sits above the home indicator
-          via safe-area padding. The avatar fills behind it. */}
+          via safe-area padding. The avatar fills behind it. The basket
+          icon was retired 2026-04-28 (demo eve) — Temur asked for the
+          interface to be "completely clean" with the avatar as the only
+          focal point. The cart still tracks invisibly via add_to_cart;
+          its line items surface in the receipt modal at "that's all". */}
       <div
         className="absolute bottom-0 left-0 right-0 z-20 flex justify-center pointer-events-none"
         style={{
